@@ -10,6 +10,11 @@ async def index():
     return {"message": "Hello World"}
 
 
+@app.get("/hello")
+async def hello():
+    return {"message": "Hello World"}
+
+
 if __name__ == "__main__":
     import uvicorn
 
