@@ -159,7 +159,7 @@ def check_arguments(arguments: Iterable[str]):
 @app.post(PREFIX + "/query")
 @require_argument(["query"])
 @check_arguments(["process", "provider", "search_amount"])
-def search(
+def query(
     query: str, process: bool = True, provider: str = "youtube", search_amount: int = 5
 ):
     return extract_info(
