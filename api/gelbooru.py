@@ -80,7 +80,7 @@ def index():
         ret = requests.get(url, stream=True)
         content_lenght = ret.headers.get("Content-Length", 1048576)
         size = int(content_lenght) / 1048576 if content_lenght else -1
-        if size > 0 and size > 6:
+        if size > 0 and size < 6:
             break
 
     def iter_content():
