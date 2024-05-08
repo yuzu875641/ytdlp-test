@@ -71,18 +71,22 @@ def add_header(r):
 
 @app.route(PREFIX)
 def index():
-    try:
-        url = get_random(TAGS)
-    except EmptyResponse:
-        return "No image found", 404
+    while True:
+        try:
+            url = get_random(TAGS)
+        except EmptyResponse:
+            return "No image found", 404
 
-    ret = requests.get(url, stream=True)
+        ret = requests.get(url, stream=True)
+        content_lenght = ret.headers.get("Content-Length", 1048576)
+        size = int(content_lenght) / 1048576 if content_lenght else -1
+        if size > 0 and size > 6:
+            break
 
     def iter_content():
         for chunk in ret.iter_content(1024):
             yield chunk
 
-    print(ret.headers)
     return Response(iter_content(), content_type=ret.headers.get("Content-Type"))
 
 
