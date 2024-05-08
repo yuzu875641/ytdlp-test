@@ -76,15 +76,14 @@ def index():
     except EmptyResponse:
         return "No image found", 404
 
-    ret = requests.get(url)
+    ret = requests.get(url, stream=True)
 
     def iter_content():
         for chunk in ret.iter_content(1024):
             yield chunk
 
-    print(url)
     print(ret.headers)
-    return Response(ret.content, content_type=ret.headers.get("Content-Type"))
+    return Response(iter_content(), content_type=ret.headers.get("Content-Type"))
 
 
 if __name__ == "__main__":
