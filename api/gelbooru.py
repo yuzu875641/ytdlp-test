@@ -26,34 +26,65 @@ def str_to_bool(s: str | bool | None) -> bool:
     return False
 
 
-def get_random(tags: list[str]):
-    url = f"https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&tags={'+'.join(tags)}&limit=1"
+def calculate_size(response: requests.Response):
+    return int(response.headers.get("Content-Length", 1048576)) / 1048576
 
-    # get number of image and then random it to get the url
-    ret = requests.get(url)
-    if ret is None:
+
+def select_image(data: dict) -> requests.Response | None:
+    post = data.get("post", [None])[0]
+    if not post:
+        return None
+
+    urls = [post.get("file_url"), post.get("sample_url")]
+    for url in filter(None, urls):
+        response = requests.get(url, stream=True)
+        if response.ok and calculate_size(response) < 4:
+            return response
+
+
+def get_tags_count(tags: list[str]) -> int:
+    url = "https://gelbooru.com/index.php"
+    params = {
+        "page": "dapi",
+        "s": "post",
+        "q": "index",
+        "json": 1,
+        "tags": "+".join(tags),
+        "limit": 1,
+    }
+
+    response = requests.get(
+        url, params="&".join("%s=%s" % (k, v) for k, v in params.items())
+    )
+    response.raise_for_status()
+
+    data = response.json()
+    return data["@attributes"]["count"]
+
+
+def get_random_image(tags: list[str]) -> requests.Response | None:
+    api_url = "https://gelbooru.com/index.php"
+    api_params = {
+        "page": "dapi",
+        "s": "post",
+        "q": "index",
+        "json": 1,
+        "tags": "+".join(tags),
+        "limit": 1,
+        "pid": randint(1, get_tags_count(tags)),
+    }
+
+    response = requests.get(
+        api_url, params="&".join("%s=%s" % (k, v) for k, v in api_params.items())
+    )
+    if not response or not response.ok:
         raise EmptyResponse()
-    ret_json = ret.json()
 
-    try:
-        count: int = ret_json["@attributes"]["count"]
-    except KeyError:
+    data = response.json()
+    if not data or not data.get("post"):
         raise EmptyResponse()
 
-    ret = requests.get(url + f"&pid={randint(1, count)}")
-    if not ret or not ret.ok:
-        raise EmptyResponse()
-
-    ret_json = ret.json()
-    if posts := ret_json.get("post"):
-        posts = posts[0]
-        if url := posts.get("file_url"):
-            return url
-
-        if url := posts.get("sample_url"):
-            return url
-
-    raise EmptyResponse()
+    return select_image(data)
 
 
 @app.after_request
@@ -71,23 +102,19 @@ def add_header(r):
 
 @app.route(PREFIX)
 def index():
-    while True:
-        try:
-            url = get_random(TAGS)
-        except EmptyResponse:
-            return "No image found", 404
+    try:
+        req = get_random_image(TAGS)
+    except EmptyResponse:
+        return "No image found", 404
 
-        ret = requests.get(url, stream=True)
-        content_lenght = ret.headers.get("Content-Length", 1048576)
-        size = int(content_lenght) / 1048576 if content_lenght else -1
-        if size > 0 and size < 6:
-            break
+    if req is None:
+        return "No image found", 404
 
     def iter_content():
-        for chunk in ret.iter_content(1024):
+        for chunk in req.iter_content(1024):
             yield chunk
 
-    return Response(iter_content(), content_type=ret.headers.get("Content-Type"))
+    return Response(iter_content(), content_type=req.headers.get("Content-Type"))
 
 
 if __name__ == "__main__":
