@@ -13,17 +13,14 @@ class EmptyResponse(Exception):
     pass
 
 
-def str_to_bool(s: str | bool | None) -> bool:
-    if s is None:
+def str_to_bool(value: str | bool | None) -> bool:
+    if value is None:
         return False
 
-    if isinstance(s, bool):
-        return s
+    if isinstance(value, bool):
+        return value
 
-    if s.lower() in ("yes", "true", "t", "y", "1"):
-        return True
-
-    return False
+    return value.lower() in ("yes", "true", "t", "y", "1")
 
 
 def calculate_size(response: requests.Response):
@@ -103,18 +100,19 @@ def add_header(r):
 @app.route(PREFIX)
 def index():
     try:
-        req = get_random_image(TAGS)
+        image_response = get_random_image(TAGS)
     except EmptyResponse:
         return "No image found", 404
 
-    if req is None:
+    if not image_response:
         return "No image found", 404
 
-    def iter_content():
-        for chunk in req.iter_content(1024):
+    def generate_response():
+        for chunk in image_response.iter_content(1024):
             yield chunk
 
-    return Response(iter_content(), content_type=req.headers.get("Content-Type"))
+    content_type = image_response.headers.get("Content-Type")
+    return Response(generate_response(), content_type=content_type)
 
 
 if __name__ == "__main__":
