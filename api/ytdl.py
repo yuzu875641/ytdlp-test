@@ -26,17 +26,14 @@ ytdlopts = {
 ytdl = YoutubeDL(ytdlopts)
 
 
-def str_to_bool(s: str | bool | None) -> bool:
-    if s is None:
+def str_to_bool(value: str | bool | None) -> bool:
+    if value is None:
         return False
 
-    if isinstance(s, bool):
-        return s
+    if isinstance(value, bool):
+        return value
 
-    if s.lower() in ("yes", "true", "t", "y", "1"):
-        return True
-
-    return False
+    return value.lower() in ("yes", "true", "t", "y", "1")
 
 
 @app.route(PREFIX)
@@ -46,31 +43,38 @@ def index():
 
 @app.route(PREFIX + "/login", methods=["GET", "POST"])
 def login():
-    if request.method == "GET":
-        username = request.args.get("username")
-        password = request.args.get("password")
-    else:
-        username = request.form.get("username")
-        password = request.form.get("password")
+    if not login_users:
+        return "No users available", 401
+
+    username = (
+        request.args.get("username")
+        if request.method == "GET"
+        else request.form.get("username")
+    )
+    password = (
+        request.args.get("password")
+        if request.method == "GET"
+        else request.form.get("password")
+    )
 
     if username in users and users[username] == password:
-        token = uuid4().hex
+        token = str(uuid4())
         login_users[token] = username
         return token
-    else:
-        return "", 401
+
+    return "", 401
 
 
-def check_token(func):
+def require_auth(func):
     def wrapper(*args, **kwargs):
-        if not users:
+        if not login_users:
             return func(*args, **kwargs)
 
-        token = request.args.get("token")
-        if not token:
-            token = request.form.get("token")
+        auth_token = request.headers.get("Authorization")
+        if not auth_token:
+            auth_token = request.args.get("token") or request.form.get("token")
 
-        if token and login_users.get(token):
+        if auth_token and auth_token in login_users:
             return func(*args, **kwargs)
         else:
             return jsonify({"error": "Invalid token"}), 401
@@ -98,14 +102,15 @@ def extract_info(url=None, video_id=None, process: bool | str | None = True):
     return jsonify(info)
 
 
-@app.route(PREFIX + "/video/<string:video_id>")
-@check_token
-def ytdl_api(video_id: str):
-    return extract_info(video_id=video_id, process=request.args.get("process"))
+@app.route(PREFIX + "/video/<video_id>")
+@require_auth
+def ytdl_api(video_id):
+    process = request.args.get("process")
+    return extract_info(video_id=video_id, process=process)
 
 
 @app.route(PREFIX + "/playlist/<string:playlist_id>")
-@check_token
+@require_auth
 def ytdl_api_playlist(playlist_id: str):
     return extract_info(
         url=f"https://www.youtube.com/playlist?list={playlist_id}",
