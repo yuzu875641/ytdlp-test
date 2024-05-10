@@ -1,13 +1,10 @@
-from uuid import uuid4
 from typing import Iterable
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, redirect, request
 from yt_dlp import YoutubeDL, DownloadError
 
 PREFIX = "/api/ytdl"
 
-users = {"admin": "password"}
-login_users: dict[str, str] = {}
 app = Flask(__name__)
 
 ytdlopts = {
@@ -64,28 +61,28 @@ def index():
     return "Hello, World!"
 
 
-@app.route(PREFIX + "/login", methods=["GET", "POST"])
-def login():
-    if not login_users:
-        return "No users available", 401
+# @app.route(PREFIX + "/login", methods=["GET", "POST"])
+# def login():
+#     if not login_users:
+#         return "No users available", 401
 
-    username = (
-        request.args.get("username")
-        if request.method == "GET"
-        else request.form.get("username")
-    )
-    password = (
-        request.args.get("password")
-        if request.method == "GET"
-        else request.form.get("password")
-    )
+#     username = (
+#         request.args.get("username")
+#         if request.method == "GET"
+#         else request.form.get("username")
+#     )
+#     password = (
+#         request.args.get("password")
+#         if request.method == "GET"
+#         else request.form.get("password")
+#     )
 
-    if username in users and users[username] == password:
-        token = str(uuid4())
-        login_users[token] = username
-        return token
+#     if username in users and users[username] == password:
+#         token = str(uuid4())
+#         login_users[token] = username
+#         return token
 
-    return "", 401
+#     return "", 401
 
 
 def extract_info(
@@ -169,11 +166,13 @@ def query(
     )
 
 
-@app.post(PREFIX + "/get_stream")
-@require_argument(["url"])
-def get_stream(url: str):
-    return extract_info(get_extractor(), url=url, process=True)
+@app.get(PREFIX + "/get_stream/<string:video_id>")
+def get_stream(video_id: str):
+    resp = get_extractor().extract_info(
+        f"https://www.youtube.com/watch?v={video_id}", download=False, process=True
+    )
+    return redirect(resp["url"], code=302)  # type: ignore
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=8000)
