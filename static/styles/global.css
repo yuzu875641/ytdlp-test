@@ -1,0 +1,204 @@
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans&display=swap');
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+  --padding: 0.7rem;
+  --gap: 0.5rem;
+  --gap-no-icon: 0.6rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+    --accent: rgb(12, 12, 12);
+    --accent-button: rgb(25, 25, 25);
+    --button-hover: rgb(40, 40, 40);
+    --accent-highlight: rgb(225, 225, 225, 4%);
+    --loading-icon: rgb(195, 195, 195);
+
+    --selected: rgb(225, 225, 225);
+    --selected-text: rgb(12, 12, 12);
+    --selected-hover: rgb(195, 195, 195);
+
+    --disabled: rgb(60, 60, 60);
+    --disabled-text: rgb(195, 195, 195);
+
+    --text-color: rgb(225, 225, 225);
+  }
+}
+
+body {
+  background-color: rgb(var(--foreground-rgb));
+  font-family: 'Open Sans', sans-serif;
+  background: linear-gradient(to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
+}
+
+main {
+  position: fixed;
+  width: 100vw;
+  height: 100vh;
+  top: 0;
+  left: 0;
+}
+
+header {
+  width: 100%;
+  position: absolute;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: var(--padding);
+  padding-top: var(--padding);
+  text-align: center;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* fixed top-1/2 left-1/2 w-2/5 h-auto -translate-x-1/2 -translate-y-2/3 rounded-lg flex flex-col items-center */
+#main-toolbox {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 40%;
+  height: auto;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* flex items-center flex-col mb-[--padding] */
+#logo-area {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  margin-bottom: var(--padding);
+}
+
+/* flex flex-col w-full z-10 */
+#download-area {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  z-index: 99;
+}
+
+#url-input {
+  background: none;
+  width: 100%;
+  border: 0;
+  float: right;
+  border-bottom: 0.1rem solid rgb(110, 110, 110);
+  outline: none;
+  font-size: 0.8rem;
+  padding-block: var(--padding);
+  padding-inline: 2px;
+  transition: all 0.3s;
+}
+
+#url-input:focus {
+  border-bottom: 0.1rem solid rgb(211, 211, 211);
+}
+
+/* flex flex-row justify-between mt-[--padding] */
+#custom-button-area {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  margin-top: var(--padding);
+  width: 100%;
+}
+
+button-component {
+  text-align: left;
+  background: var(--accent-button);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 7px;
+  padding: var(--gap) 1rem;
+  user-select: none;
+  transition: background-color 0.3s;
+}
+
+button-component:hover {
+  background-color: var(--button-hover);
+}
+
+p,
+input,
+header,
+button-component {
+  color: var(--text-color);
+  font-size: 0.9rem;
+}
+
+.box-outline {
+  box-shadow: 0 0 0 0.1rem var(--accent-highlight) inset;
+}
+
+.input-wrapper {
+  display: flex;
+}
+
+.av-wrapper {
+  display: flex;
+  flex-direction: row;
+}
+
+#video-switch {
+  border-radius: 7px 0 0 7px;
+}
+
+#audio-switch {
+  border-radius: 0 7px 7px 0;
+}
+
+/* w-full absolute bottom-0 text-center flex justify-center items-center mb-[--padding] gap-[--gap] */
+footer {
+  width: 100%;
+  position: absolute;
+  bottom: 0;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: calc(var(--padding) + 0.2rem);
+  gap: var(--gap);
+}
+
+button-component.selected {
+  background-color: var(--selected);
+  color: var(--selected-text);
+}
+
+button-component.selected:hover {
+  background-color: var(--selected-hover);
+}
+
+button-component.disabled {
+  background-color: var(--disabled);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+#download-text {
+  transition: opacity 0.2s ease-in-out;
+}
+
+#download-text.no-opacity {
+  opacity: 0;
+}
+
+#download-text.red {
+  color: red;
+}
