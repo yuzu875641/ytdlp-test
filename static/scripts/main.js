@@ -50,7 +50,10 @@ async function submit(url) {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ query: url }),
+    body: JSON.stringify({
+      query: url,
+      type: document.getElementsByClassName("av-wrapper")[0].getAttribute("data-value")
+    }),
   }).then((response) => {
     if (!response.ok) {
       throw new Error(response.statusText);
@@ -58,7 +61,8 @@ async function submit(url) {
     return response.json();
   })
     .then((data) => {
-      console.log("Success:", data);
+      // console.log("Success:", data);
+      animateDownloadText("downloading...")
       download(data)
     })
     .catch((error) => {
@@ -71,6 +75,9 @@ function download(data) {
   a.href = `/api/ytdl/download?video_id=${data.video_id}&chunk_size=${data.chunk_size}`;
   a.download = data.title + "." + data.ext;
   a.click();
+  setTimeout(() => {
+    animateDownloadText("download")
+  }, 5000)
 }
 
 function checkInput(input) {
