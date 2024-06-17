@@ -24,7 +24,6 @@ app = Flask(
 )
 ytdlopts = {
     "color": "no_color",
-    "format": "bestaudio[ext=m4a]/93/best",
     "outtmpl": r"downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s",
     "restrictfilenames": True,
     "nocheckcertificate": True,
@@ -225,9 +224,17 @@ def extract(url: str):
 
 @app.post(PREFIX + "/check")
 @require_argument(["query"])
-def check(query: str):
+@check_arguments(["type"])
+def check(query: str, type: str = "video"):
     info: dict = extract_info(
-        get_extractor(config={"noplaylist": True}),
+        get_extractor(
+            config={
+                "noplaylist": True,
+                "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best"
+                if type == "audio"
+                else "best[protocol^=http][protocol!*=dash]/best",
+            }
+        ),
         url=query,
         return_dict=True,
     )  # type: ignore
