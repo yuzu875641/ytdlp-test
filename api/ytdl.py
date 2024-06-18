@@ -179,11 +179,7 @@ def error_response(message: str):
     }
 
 
-def require_argument(arguments: Iterable[str]):
-    """Decorator that checks if the given argument name is present in the request JSON,
-    and raises a 400 error if not.
-    """
-
+def check_arguments(arguments: Iterable[str], force: bool = False):
     def decorator(func):
         def wrapper(*args, **kwargs):
             if request.method == "GET":
@@ -194,31 +190,8 @@ def require_argument(arguments: Iterable[str]):
                     return "Malformed JSON", 400
 
             for argument in arguments:
-                if argument not in json_data:
+                if argument not in json_data and force:
                     return "Missing argument", 400
-                kwargs[argument] = json_data[argument]
-
-            return func(*args, **kwargs)
-
-        wrapper.__name__ = func.__name__
-        return wrapper
-
-    return decorator
-
-
-def check_arguments(arguments: Iterable[str]):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            if request.method == "GET":
-                json_data = request.args
-            else:
-                json_data = request.get_json(force=True, silent=True, cache=True)
-                if not json_data:
-                    return "Malformed JSON", 400
-
-            for argument in arguments:
-                if argument not in json_data:
-                    continue
 
                 kwargs[argument] = json_data[argument]
             return func(*args, **kwargs)
@@ -227,6 +200,10 @@ def check_arguments(arguments: Iterable[str]):
         return wrapper
 
     return decorator
+
+
+def require_argument(arguments: Iterable[str]):
+    return check_arguments(arguments, force=True)
 
 
 @app.post(PREFIX + "/search")
