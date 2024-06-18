@@ -267,7 +267,7 @@ def check(query: str, type: str = "video"):
     )
 
 
-def range_download(url: str, range_start: int = 0, chunk_size: int = 4928307):
+def range_download(url: str, range_start: int = 0, chunk_size: int = 3145728):
     r = requests.get(
         url,
         headers={"Range": f"bytes={range_start}-{range_start+chunk_size}"},
