@@ -1,6 +1,6 @@
 import os
 from typing import Iterable
-from base64 import b64decode, b64encode
+from base64 import urlsafe_b64encode, urlsafe_b64decode
 
 from flask import (
     Flask,
@@ -24,6 +24,7 @@ app = Flask(
 )
 ytdlopts = {
     "color": "no_color",
+    "format": "(bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best)[protocol^=http][protocol!*=dash]",
     "outtmpl": r"downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s",
     "restrictfilenames": True,
     "nocheckcertificate": True,
@@ -99,12 +100,12 @@ def index():
 #     return "", 401
 
 
-def encode(str: str) -> str:
-    return b64encode(str.encode("utf-8")).decode("utf-8")
+def encode(msg: str) -> str:
+    return urlsafe_b64encode(msg.encode("utf-8")).decode("utf-8")
 
 
-def decode(str: str) -> str:
-    return b64decode(str.encode("utf-8")).decode("utf-8")
+def decode(msg: str) -> str:
+    return urlsafe_b64decode(msg.encode("utf-8")).decode("utf-8")
 
 
 def __extract_info(
@@ -229,13 +230,15 @@ def extract(url: str):
 @require_argument(["query"])
 @check_arguments(["type"])
 def check(query: str, type: str = "video"):
+    format_sel = ytdlopts["format"]
+    if type == "video":
+        format_sel = "best[protocol^=http][protocol!*=dash]/" + format_sel
+
     info = extract_info(
         get_extractor(
             config={
                 "noplaylist": True,
-                "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best"
-                if type == "audio"
-                else "best[protocol^=http][protocol!*=dash]/best",
+                "format": format_sel,
             }
         ),
         url=query,
@@ -251,8 +254,8 @@ def check(query: str, type: str = "video"):
         return jsonify({"error": "No url found"}), 404
 
     chunk_size = 10 * 1024
-    if info["downloader_options"].get("http_chunk_size"):
-        chunk_size = int(info["downloader_options"]["http_chunk_size"]) // 5
+    if str_chunk_size := info.get("downloader_options", {}).get("http_chunk_size"):
+        chunk_size = int(str_chunk_size) // 5
 
     return jsonify(
         {
