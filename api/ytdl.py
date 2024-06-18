@@ -267,11 +267,44 @@ def check(query: str, type: str = "video"):
     )
 
 
+def range_download(url: str, range_start: int = 0, chunk_size: int = 4928307):
+    r = requests.get(
+        url,
+        headers={"Range": f"bytes={range_start}-{range_start+chunk_size}"},
+        stream=True,
+    )
+    if not r.ok:
+        return jsonify({"error": "Download failed"}), r.status_code
+
+    resp_headers: dict[str, str] = {
+        "Content-Length": r.headers.get("Content-Length", "0"),
+        "Content-Type": r.headers.get("Content-Type", "application/octet-stream"),
+    }
+    if "Content-Range" in r.headers:
+        resp_headers["Content-Range"] = r.headers["Content-Range"]
+
+    return Response(
+        stream_with_context(r.iter_content(chunk_size=int(chunk_size))),
+        headers=resp_headers,
+        status=r.status_code,
+    )
+
+
 @app.get(PREFIX + "/download")
 @require_argument(["video_id"])
 @check_arguments(["chunk_size"])
 def download(video_id: str, chunk_size: int = 10 * 1024):
     url = decode(video_id)
+
+    if not url:
+        return jsonify({"error": "Invalid video id"}), 400
+
+    range_start = request.headers.get("Range")
+    if range_start:
+        return range_download(
+            url, range_start=int(range_start.removeprefix("bytes=").split("-")[0])
+        )
+
     r = requests.get(url, headers={"Range": "bytes=0-"}, stream=True)
     if not r.ok:
         return jsonify({"error": "Download failed"}), r.status_code
