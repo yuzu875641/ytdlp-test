@@ -107,13 +107,12 @@ def decode(str: str) -> str:
     return b64decode(str.encode("utf-8")).decode("utf-8")
 
 
-def extract_info(
+def __extract_info(
     extractor: YoutubeDL,
     url: str | None = None,
     video_id: str | None = None,
     process: bool | str | None = True,
-    return_dict: bool = False,
-):
+) -> dict:
     """Extracts video information from url or video_id using the provided extractor.
 
     Args:
@@ -144,13 +143,40 @@ def extract_info(
         return error_response("Failed to extract info")
 
     info["is_search"] = "search" in info.get("extractor", "")
+    info["success"] = True
 
-    return info if return_dict else jsonify(info)
+    return info
+
+
+def extract_info_respones(
+    extractor: YoutubeDL,
+    url: str | None = None,
+    video_id: str | None = None,
+    process: bool | str | None = True,
+) -> Response | tuple[Response, int]:
+    response = __extract_info(extractor, url, video_id, process)
+    if response.pop("success", False):
+        return jsonify(response)
+    else:
+        code: int = int(response.pop("code", 500))
+        return jsonify(response), code
+
+
+def extract_info(
+    extractor: YoutubeDL,
+    url: str | None = None,
+    video_id: str | None = None,
+    process: bool | str | None = True,
+) -> dict:
+    return __extract_info(extractor, url, video_id, process)
 
 
 def error_response(message: str):
-    """Creates a Response object with an error message."""
-    return jsonify({"error": message}), 400 if "No" in message else 500
+    return {
+        "error": message,
+        "success": False,
+        "code": 400 if "No" in message else 500,
+    }
 
 
 def require_argument(arguments: Iterable[str]):
@@ -226,7 +252,7 @@ def extract(url: str):
 @require_argument(["query"])
 @check_arguments(["type"])
 def check(query: str, type: str = "video"):
-    info: dict = extract_info(
+    info = extract_info(
         get_extractor(
             config={
                 "noplaylist": True,
@@ -236,11 +262,12 @@ def check(query: str, type: str = "video"):
             }
         ),
         url=query,
-        return_dict=True,
-    )  # type: ignore
+    )
 
-    if not isinstance(info, dict):
-        return info
+    if not info.pop("success", False):
+        return jsonify({"error": info.get("error", "Unknown error")}), info.get(
+            "code", 500
+        )
 
     url = info.get("url")
     if not url:
@@ -269,13 +296,8 @@ def download(video_id: str, chunk_size: int = 10 * 1024):
     if not r.ok:
         return jsonify({"error": "Download failed"}), r.status_code
 
-    def wrapper():
-        for chunk in r.iter_content(chunk_size=int(chunk_size)):
-            print(len(chunk))
-            yield chunk
-
     return Response(
-        stream_with_context(wrapper()),
+        stream_with_context(r.iter_content(chunk_size=int(chunk_size))),
         content_type=r.headers.get("Content-Type", "application/octet-stream"),
     )
 
