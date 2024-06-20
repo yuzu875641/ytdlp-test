@@ -13,6 +13,9 @@ from flask import (
 import requests
 from yt_dlp import YoutubeDL, DownloadError
 
+MAX_RESPONE_SIZE = 1024 * 1024 * 5
+RANGE_CHUNK_SIZE = 3145728
+CHUNK_SIZE = 512 * 1024
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
 PREFIX = "/api/ytdl"
@@ -180,7 +183,7 @@ def error_response(message: str):
     }
 
 
-def check_arguments(arguments: Iterable[str], force: bool = False):
+def check_arguments(arguments: Iterable[str]):
     def decorator(func):
         def wrapper(*args, **kwargs):
             if request.method == "GET":
@@ -191,10 +194,10 @@ def check_arguments(arguments: Iterable[str], force: bool = False):
                     return "Malformed JSON", 400
 
             for argument in arguments:
-                if argument not in json_data and force:
-                    return "Missing argument", 400
-
+                if argument not in json_data:
+                    continue
                 kwargs[argument] = json_data[argument]
+
             return func(*args, **kwargs)
 
         wrapper.__name__ = func.__name__
@@ -204,7 +207,25 @@ def check_arguments(arguments: Iterable[str], force: bool = False):
 
 
 def require_argument(arguments: Iterable[str]):
-    return check_arguments(arguments, force=True)
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            if request.method == "GET":
+                json_data = request.args
+            else:
+                json_data = request.get_json(force=True, silent=True, cache=True)
+                if not json_data:
+                    return "Malformed JSON", 400
+
+            for argument in arguments:
+                if argument not in json_data:
+                    return "Missing argument", 400
+                kwargs[argument] = json_data[argument]
+            return func(*args, **kwargs)
+
+        wrapper.__name__ = func.__name__
+        return wrapper
+
+    return decorator
 
 
 @app.post(PREFIX + "/search")
@@ -253,28 +274,44 @@ def check(query: str, type: str = "video"):
     if not url:
         return jsonify({"error": "No url found"}), 404
 
-    chunk_size = 10 * 1024
-    if str_chunk_size := info.get("downloader_options", {}).get("http_chunk_size"):
-        chunk_size = int(str_chunk_size) // 5
+    ret_data = {
+        "video_id": encode(url),
+        "title": info.get("title", info.get("id", "")),
+        "ext": info.get("ext", "bin"),
+    }
 
-    return jsonify(
-        {
-            "video_id": encode(url),
-            "title": info.get("title", info.get("id", "")),
-            "ext": info.get("ext", "bin"),
-            "chunk_size": chunk_size,
-        }
-    )
+    if (
+        filesize_approx := info.get("filesize_approx", RANGE_CHUNK_SIZE)
+    ) >= RANGE_CHUNK_SIZE:
+        ret_data["is_part"] = True
+        ret_data["url"] = "/api/ytdl/part-download"
+        ret_data["filesize_approx"] = filesize_approx
+        ret_data["part"] = 0
+
+    return jsonify(ret_data)
 
 
-def range_download(url: str, range_start: int = 0, chunk_size: int = 3145728):
+@app.get(PREFIX + "/range-download")
+@require_argument(["video_id"])
+@check_arguments(["range_start"])
+def range_download(video_id: str, range_start: int | str = 0):
+    url = decode(video_id)
+    if not url:
+        return jsonify({"error": "Invalid video id"}), 400
+
+    if isinstance(range_start, str):
+        range_start = int(range_start)
+
     r = requests.get(
         url,
-        headers={"Range": f"bytes={range_start}-{range_start+chunk_size}"},
+        headers={"Range": f"bytes={range_start}-{range_start+MAX_RESPONE_SIZE}"},
         stream=True,
     )
     if not r.ok:
         return jsonify({"error": "Download failed"}), r.status_code
+
+    if r.status_code != 206:
+        return jsonify({"error": "Download failed"}), 500
 
     resp_headers: dict[str, str] = {
         "Content-Length": r.headers.get("Content-Length", "0"),
@@ -283,34 +320,71 @@ def range_download(url: str, range_start: int = 0, chunk_size: int = 3145728):
     if "Content-Range" in r.headers:
         resp_headers["Content-Range"] = r.headers["Content-Range"]
 
+    def wrapper():
+        for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
+            print(len(chunk))
+            yield chunk
+
     return Response(
-        stream_with_context(r.iter_content(chunk_size=int(chunk_size))),
+        stream_with_context(wrapper()),
         headers=resp_headers,
         status=r.status_code,
     )
 
 
+@app.post(PREFIX + "/part-download")
+@require_argument(["video_id", "filesize_approx", "range_start"])
+def part_download(video_id: str, filesize_approx: str | int, range_start: str | int):
+    if not video_id:
+        return jsonify({"error": "Invalid video id"}), 400
+
+    if isinstance(filesize_approx, str):
+        filesize_approx = int(filesize_approx)
+
+    if isinstance(range_start, str):
+        range_start = int(range_start)
+
+    remaining = filesize_approx - range_start
+    if remaining < 0:
+        return jsonify({"status": "finished"}), 226
+
+    return jsonify(
+        {
+            "url": f"/api/ytdl/range-download?video_id={video_id}&range_start={range_start}",
+        }
+    )
+
+
 @app.get(PREFIX + "/download")
 @require_argument(["video_id"])
-@check_arguments(["chunk_size"])
-def download(video_id: str, chunk_size: int = 10 * 1024):
+def download(
+    video_id: str,
+):
     url = decode(video_id)
-
     if not url:
         return jsonify({"error": "Invalid video id"}), 400
 
     range_start = request.headers.get("Range")
     if range_start:
         return range_download(
-            url, range_start=int(range_start.removeprefix("bytes=").split("-")[0])
+            video_id, range_start=int(range_start.removeprefix("bytes=").split("-")[0])
         )
 
     r = requests.get(url, headers={"Range": "bytes=0-"}, stream=True)
     if not r.ok:
         return jsonify({"error": "Download failed"}), r.status_code
 
+    filesize_approx = int(r.headers.get("Content-Length", 0))
+    if filesize_approx and filesize_approx >= MAX_RESPONE_SIZE:
+        return jsonify({"error": "Not supported"}), 501
+
+    def wrapper():
+        for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
+            print(len(chunk))
+            yield chunk
+
     return Response(
-        stream_with_context(r.iter_content(chunk_size=int(chunk_size))),
+        stream_with_context(wrapper()),
         content_type=r.headers.get("Content-Type", "application/octet-stream"),
     )
 
