@@ -131,6 +131,10 @@ async function parts(bufferList, url, video_id, filesize_approx, range_start) {
   }
 
   const getResp = await fetch(postData.url)
+  if (getResp.status == 416) {
+    return
+  }
+
   const contentLength = getResp.headers.get("Content-Length")
   const new_range_start = Number(range_start) + Number(contentLength)
 
