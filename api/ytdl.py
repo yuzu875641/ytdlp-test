@@ -13,7 +13,7 @@ from flask import (
 import requests
 from yt_dlp import YoutubeDL, DownloadError
 
-MAX_RESPONE_SIZE = 1024 * 1024 * 5
+MAX_RESPONE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 3145728
 CHUNK_SIZE = 512 * 1024
 
