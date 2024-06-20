@@ -281,8 +281,8 @@ def check(query: str, type: str = "video"):
     }
 
     if (
-        filesize_approx := info.get("filesize_approx", RANGE_CHUNK_SIZE)
-    ) >= RANGE_CHUNK_SIZE:
+        filesize_approx := info.get("filesize_approx", MAX_RESPONE_SIZE)
+    ) >= MAX_RESPONE_SIZE:
         ret_data["is_part"] = True
         ret_data["url"] = "/api/ytdl/part-download"
         ret_data["filesize_approx"] = filesize_approx
