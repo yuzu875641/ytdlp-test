@@ -1,9 +1,5 @@
 {
-  "rewrites": [
-    { "source": "/", "destination": "/api/index" },
-    { "source": "/api", "destination": "/api/index" },
-    { "source": "/api/ytdl/:path*", "destination": "/api/ytdl" },
-    { "source": "/api/gelbooru/:path*", "destination": "/api/gelbooru" }
-  ],
-  "trailingSlash": false
+  "rewrites": [{ "source": "/", "destination": "/api/index" }],
+  "trailingSlash": false,
+  "cleanUrls": true
 }
