@@ -63,20 +63,21 @@ function animateErrorText(afterText) {
   }, 200)
 }
 
-async function submit(url) {
+function submit(url) {
   if (!isValidHttpUrl(url)) {
     return
   }
   animateDownloadText("...")
 
-  await fetch("/api/ytdl/check", {
+  fetch("/api/ytdl/check", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       query: url,
-      type: document.getElementsByClassName("av-wrapper")[0].getAttribute("data-value")
+      type: document.getElementsByClassName("av-wrapper")[0].getAttribute("data-value"),
+      has_ffmpeg: window.WP_ffmpeg !== undefined && window.WP_ffmpeg.loaded
     }),
   }).then((response) => {
     if (!response.ok) {
@@ -84,21 +85,44 @@ async function submit(url) {
     }
     return response.json();
   })
-    .then((data) => {
-      // console.log("Success:", data);
+    .then(async (data) => {
       animateDownloadText("downloading...");
+      if (data.needs_ffmpeg == true) {
+        if (!window.WP_ffmpeg.loaded) {
+          animateErrorText("ffmpeg not loaded");
+          return;
+        }
+
+        const params = {
+          filename: data.title,
+        };
+        debugger;
+        for (const format of data.requested_formats) {
+          const fileData = format.is_part ? await partsDownload(format) : await fetchFile(`/api/ytdl/download?video_id=${format.video_id}`);
+          params[`${format.type}Data`] = fileData;
+          params[`${format.type}Ext`] = format.ext;
+          params[`${format.type}Title`] = format.format_id;
+        }
+        await ffmpegDownload(params);
+        animateDownloadText("download");
+        return;
+      }
+
       if (data.is_part == true) {
-        return downloadParts(data);
+        return partsDownload(data)
+          .then((data) => {
+            saveAs(data, data.name);
+            animateDownloadText("download");
+          })
+          .catch(() => {
+            animateErrorText("invalid url");
+          });
       }
       download(data);
     })
-    .catch(() => {
-      animateErrorText("invalid url");
-    });
 }
 
-function saveAs(arrayBuffers, filename) {
-  const blob = new Blob(arrayBuffers, { type: "application/octet-stream" });
+function saveAs(blob, filename) {
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.style.display = "none";
@@ -145,24 +169,61 @@ async function parts(bufferList, url, video_id, filesize_approx, range_start) {
   await parts(bufferList, url, video_id, filesize_approx, new_range_start)
 }
 
-function downloadParts(data) {
-  const url = data.url
-  const bufferList = []
-  const video_id = data.video_id
-  const filesize_approx = data.filesize_approx
-  parts(bufferList, url, video_id, filesize_approx, 0)
-    .then(() => {
-      saveAs(bufferList, data.title + "." + data.ext);
-      animateDownloadText();
-    })
-    .catch((error) => {
-      animateErrorText("invalid url");
-    });
+async function ffmpegDownload({ filename, videoData, videoTitle, videoExt, audioData, audioTitle, audioExt }) {
+  debugger;
+  const videoName = videoTitle + "." + videoExt
+  const audioName = audioTitle + "." + audioExt
+
+  if (videoData.constructor.name == "Blob") {
+    videoData = new Uint8Array(await videoData.arrayBuffer())
+  }
+  if (audioData.constructor.name == "Blob") {
+    audioData = new Uint8Array(await audioData.arrayBuffer())
+  }
+
+  animateDownloadText(`ffmpeg-ing...`)
+  const ffmpeg = window.WP_ffmpeg;
+  await ffmpeg.writeFile(
+    videoName,
+    videoData
+  );
+  await ffmpeg.writeFile(
+    audioName,
+    audioData
+  );
+  await ffmpeg.exec(
+    [
+      "-i",
+      videoName,
+      "-i",
+      audioName,
+      "-c:v",
+      "copy",
+      "-c:a",
+      "copy",
+      "output.mp4"
+    ],
+  );
+  const data = await ffmpeg.readFile('output.mp4');
+  const blob = new Blob([data], { type: `video/${videoExt}` });
+  saveAs(blob, filename);
+  animateDownloadText("download")
+}
+
+async function partsDownload(data) {
+  const url = data.url || "/api/ytdl/part-download";
+  const bufferList = [];
+  const video_id = data.video_id;
+  const filesize_approx = data.filesize_approx;
+
+  await parts(bufferList, url, video_id, filesize_approx, 0);
+  const blob = new Blob(bufferList, { type: "application/octet-stream" });
+  return blob;
 }
 
 function download(data) {
   const a = document.createElement("a");
-  a.href = `/api/ytdl/download?video_id=${data.video_id}&filesize_approx=${data.filesize_approx}`;
+  a.href = `/api/ytdl/download?video_id=${data.video_id}`;
   a.download = data.title + "." + data.ext;
   a.click();
   setTimeout(() => {

@@ -14,7 +14,7 @@ import requests
 from yt_dlp import YoutubeDL, DownloadError
 
 MAX_RESPONE_SIZE = 1024 * 1024 * 4
-RANGE_CHUNK_SIZE = 3145728
+RANGE_CHUNK_SIZE = 1024 * 1024 * 3
 CHUNK_SIZE = 512 * 1024
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
@@ -249,17 +249,28 @@ def extract(url: str):
 
 @app.post(PREFIX + "/check")
 @require_argument(["query"])
-@check_arguments(["type"])
-def check(query: str, type: str = "video"):
-    format_sel = ytdlopts["format"]
+@check_arguments(["type", "has_ffmpeg", "format"])
+def check(query: str, type: str = "video", has_ffmpeg: bool = False, format: str = ""):
+    # format_sel = ytdlopts["format"]
     if type == "video":
-        format_sel = "best[protocol^=http][protocol!*=dash]/" + format_sel
+        format += (
+            "/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]/b"
+            if has_ffmpeg
+            else "best*[vcodec!=none][acodec!=none][height<=1080]"
+        )
+    elif type == "audio":
+        format += "/bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio"
+    else:
+        return jsonify({"error": "Invalid type"}), 400
+
+    if format.startswith("/"):
+        format = format[1:]
 
     info = extract_info(
         get_extractor(
             config={
                 "noplaylist": True,
-                "format": format_sel,
+                "format": f"({format}/best)[protocol^=http][protocol!*=dash][filesize<=200M]",
             }
         ),
         url=query,
@@ -270,23 +281,38 @@ def check(query: str, type: str = "video"):
             "code", 500
         )
 
+    ret_data = {
+        "title": info.get("title", info.get("id", "")),
+        "ext": info.get("ext", "bin"),
+    }
+    if has_ffmpeg or "requested_formats" in info:
+        ret_data["needs_ffmpeg"] = True
+        ret_data["requested_formats"] = [
+            {
+                "video_id": encode(i["url"]),
+                "ext": i["ext"],
+                "format_id": i.get("format_id", "0"),
+                "filesize_approx": i.get("filesize_approx", 0),
+                "is_part": i.get("filesize_approx", 0) >= MAX_RESPONE_SIZE,
+                "type": "audio"
+                if i.get("audio_channels") and i["audio_channels"] > 0
+                else "video",
+            }
+            for i in info.get("requested_formats", [])
+        ]
+        return jsonify(ret_data)
+
     url = info.get("url")
     if not url:
         return jsonify({"error": "No url found"}), 404
 
-    ret_data = {
-        "video_id": encode(url),
-        "title": info.get("title", info.get("id", "")),
-        "ext": info.get("ext", "bin"),
-    }
-
+    ret_data["video_id"] = encode(url)
     if (
         filesize_approx := info.get("filesize_approx", MAX_RESPONE_SIZE)
     ) >= MAX_RESPONE_SIZE:
         ret_data["is_part"] = True
         ret_data["url"] = "/api/ytdl/part-download"
         ret_data["filesize_approx"] = filesize_approx
-        ret_data["part"] = 0
 
     return jsonify(ret_data)
 
@@ -357,9 +383,7 @@ def part_download(video_id: str, filesize_approx: str | int, range_start: str | 
 
 @app.get(PREFIX + "/download")
 @require_argument(["video_id"])
-def download(
-    video_id: str,
-):
+def download(video_id: str):
     url = decode(video_id)
     if not url:
         return jsonify({"error": "Invalid video id"}), 400

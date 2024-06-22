@@ -6,47 +6,44 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>hewwo</title>
   <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/global.css') }}">
-  <script src="{{ url_for('static',filename='scripts/main.js') }}"></script>
-  <script src="https://cdn.jsdelivr.net/npm/web-streams-polyfill@2.0.2/dist/ponyfill.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/streamsaver@2.0.3/StreamSaver.min.js"></script>
+  <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/awm.css') }}">
+  <script src="{{ url_for('static', filename='scripts/dist/webpack.js') }}"></script>
+  <script src="{{ url_for('static', filename='scripts/main.js') }}"></script>
 </head>
 
 <body>
-  <main>
-    <header>
-      hewwo
-    </header>
+  <header>
+    hewwo
+  </header>
 
-    <div id="main-toolbox">
-      <div id="logo-area">
-        <img
-          src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/Youtube_Music_icon.svg/2048px-Youtube_Music_icon.svg.png"
-          alt="logo" width="64" height="64" />
-        <p>ytdlp frontend test</p>
-      </div>
-      <div id="download-area">
-        <input type="text" id="url-input" oninput="checkInput(this)"
-          placeholder="https://www.youtube.com/watch?v=..." />
-        <div id="custom-button-area">
-          <div class="av-wrapper" data-value="video">
-            <button-component onclick="videoSwitch()" class="selected" id="video-switch">video</button-component>
-            <button-component onclick="audioSwitch()" class="" id="audio-switch">audio</button-component>
-          </div>
-          <button-component onclick="submit(document.getElementById('url-input').value)" id="download-button"
-            class="box-outline">
-            <div id="download-text">
-              download
-            </div>
-          </button-component>
+  <div id="main-toolbox">
+    <div id="logo-area">
+      <img
+        src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/Youtube_Music_icon.svg/2048px-Youtube_Music_icon.svg.png"
+        alt="logo" width="64" height="64" />
+      <p>ytdlp frontend test</p>
+    </div>
+    <div id="download-area">
+      <input type="text" id="url-input" oninput="checkInput(this)" placeholder="https://www.youtube.com/watch?v=..." />
+      <div id="custom-button-area">
+        <div class="av-wrapper" data-value="video">
+          <button-component onclick="videoSwitch()" class="selected" id="video-switch">video</button-component>
+          <button-component onclick="audioSwitch()" class="" id="audio-switch">audio</button-component>
         </div>
+        <button-component onclick="submit(document.getElementById('url-input').value)" id="download-button"
+          class="box-outline">
+          <div id="download-text">
+            download
+          </div>
+        </button-component>
       </div>
     </div>
-    <footer>
-      <button-component class="box-outline">about</button-component>
-      <button-component class="box-outline">donate</button-component>
-      <button-component class="box-outline">settings</button-component>
-    </footer>
-  </main>
+  </div>
+  <footer>
+    <button-component class="box-outline">about</button-component>
+    <button-component class="box-outline">donate</button-component>
+    <button-component class="box-outline">settings</button-component>
+  </footer>
 </body>
 
 </html>

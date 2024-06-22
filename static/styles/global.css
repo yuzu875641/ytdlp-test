@@ -37,14 +37,12 @@ body {
   background: linear-gradient(to bottom,
       transparent,
       rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
-}
-
-main {
   position: fixed;
   width: 100vw;
   height: 100vh;
   top: 0;
   left: 0;
+  margin: auto;
 }
 
 header {
