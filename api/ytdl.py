@@ -285,7 +285,7 @@ def check(query: str, type: str = "video", has_ffmpeg: bool = False, format: str
         "title": info.get("title", info.get("id", "")),
         "ext": info.get("ext", "bin"),
     }
-    if has_ffmpeg or "requested_formats" in info:
+    if has_ffmpeg and "requested_formats" in info:
         ret_data["needs_ffmpeg"] = True
         ret_data["requested_formats"] = [
             {
