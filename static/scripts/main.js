@@ -98,7 +98,7 @@ function submit(url) {
         };
         debugger;
         for (const format of data.requested_formats) {
-          const fileData = format.is_part ? await partsDownload(format) : await fetchFile(`/api/ytdl/download?video_id=${format.video_id}`);
+          const fileData = format.is_part ? await partsDownload(format) : await window.WP_fetchFile(`/api/ytdl/download?video_id=${format.video_id}`);
           params[`${format.type}Data`] = fileData;
           params[`${format.type}Ext`] = format.ext;
           params[`${format.type}Title`] = format.format_id;
@@ -174,23 +174,32 @@ async function ffmpegDownload({ filename, videoData, videoTitle, videoExt, audio
   const videoName = videoTitle + "." + videoExt
   const audioName = audioTitle + "." + audioExt
 
-  if (videoData.constructor.name == "Blob") {
-    videoData = new Uint8Array(await videoData.arrayBuffer())
+  if (videoData.constructor === Blob) {
+    videoData = new Uint8Array(await videoData.arrayBuffer());
   }
-  if (audioData.constructor.name == "Blob") {
-    audioData = new Uint8Array(await audioData.arrayBuffer())
+  if (audioData.constructor === Blob) {
+    audioData = new Uint8Array(await audioData.arrayBuffer());
   }
 
   animateDownloadText(`ffmpeg-ing...`)
+
   const ffmpeg = window.WP_ffmpeg;
-  await ffmpeg.writeFile(
-    videoName,
-    videoData
-  );
-  await ffmpeg.writeFile(
-    audioName,
-    audioData
-  );
+  if (ffmpeg === undefined || !ffmpeg.loaded) {
+    animateErrorText("ffmpeg not loaded")
+    return;
+  }
+
+  await Promise.all([
+    ffmpeg.writeFile(
+      videoName,
+      videoData
+    ),
+    ffmpeg.writeFile(
+      audioName,
+      audioData
+    ),
+  ])
+
   await ffmpeg.exec(
     [
       "-i",
