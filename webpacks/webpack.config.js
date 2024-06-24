@@ -6,5 +6,5 @@ module.exports = {
         filename: 'webpack.js',
         path: path.resolve(__dirname, '../static/scripts/dist'),
     },
-    mode: 'development',
+    mode: 'production',
 };
