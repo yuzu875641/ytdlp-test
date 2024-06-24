@@ -173,7 +173,7 @@ async function ffmpegDownload({ filename, videoData, videoTitle, videoExt, audio
   debugger;
   const videoName = videoTitle + "." + videoExt
   const audioName = audioTitle + "." + audioExt
-  const outputName = filename + videoExt
+  const outputName = filename + "." + videoExt
 
   if (videoData.constructor === Blob) {
     videoData = new Uint8Array(await videoData.arrayBuffer());
@@ -215,14 +215,14 @@ async function ffmpegDownload({ filename, videoData, videoTitle, videoExt, audio
     ],
   );
   const data = await ffmpeg.readFile(outputName);
+  const blob = new Blob([data], { type: `video/${videoExt}` });
+  saveAs(blob, filename);
+  animateDownloadText("download")
   await Promise.all([
     ffmpeg.deleteFile(videoName),
     ffmpeg.deleteFile(audioName),
     ffmpeg.deleteFile(outputName),
   ]);
-  const blob = new Blob([data], { type: `video/${videoExt}` });
-  saveAs(blob, filename);
-  animateDownloadText("download")
 }
 
 async function partsDownload(data) {
