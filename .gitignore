@@ -160,3 +160,6 @@ cython_debug/
 .vercel
 
 node_modules/
+
+# ignore dump file
+*dump*
