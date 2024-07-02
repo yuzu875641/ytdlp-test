@@ -110,12 +110,12 @@ def decode(msg: str) -> str:
     return urlsafe_b64decode(msg.encode("utf-8")).decode("utf-8")
 
 
-def __extract_info(
+def extract_info(
     extractor: YoutubeDL,
     url: str | None = None,
     video_id: str | None = None,
     process: bool | str | None = True,
-) -> dict:
+):
     """Extracts video information from url or video_id using the provided extractor.
 
     Args:
@@ -149,15 +149,6 @@ def __extract_info(
     info["success"] = True
 
     return info
-
-
-def extract_info(
-    extractor: YoutubeDL,
-    url: str | None = None,
-    video_id: str | None = None,
-    process: bool | str | None = True,
-) -> dict:
-    return __extract_info(extractor, url, video_id, process)
 
 
 def error_response(message: str):
@@ -347,7 +338,9 @@ def range_download(
 
 @app.post(PREFIX + "/part-download")
 @require_argument(["video_id", "filesize_approx", "range_start"])
-def part_download(video_id: str, filesize_approx: str | int, range_start: str | int):
+def part_download(
+    video_id: str, filesize_approx: str | int, range_start: str | int
+) -> tuple[dict[str, str], int]:
     if not video_id:
         return {"error": "Invalid video id"}, 400
 
