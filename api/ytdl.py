@@ -1,11 +1,10 @@
 import os
-from typing import Iterable
+from typing import Any, Iterable
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 
 from flask import (
     Flask,
     Response,
-    jsonify,
     request,
     render_template,
     stream_with_context,
@@ -152,20 +151,6 @@ def __extract_info(
     return info
 
 
-def extract_info_respones(
-    extractor: YoutubeDL,
-    url: str | None = None,
-    video_id: str | None = None,
-    process: bool | str | None = True,
-) -> Response | tuple[Response, int]:
-    response = __extract_info(extractor, url, video_id, process)
-    if response.pop("success", False):
-        return jsonify(response)
-    else:
-        code: int = int(response.pop("code", 500))
-        return jsonify(response), code
-
-
 def extract_info(
     extractor: YoutubeDL,
     url: str | None = None,
@@ -250,7 +235,9 @@ def extract(url: str):
 @app.post(PREFIX + "/check")
 @require_argument(["query"])
 @check_arguments(["type", "has_ffmpeg", "format"])
-def check(query: str, type: str = "video", has_ffmpeg: bool = False, format: str = ""):
+def check(
+    query: str, type: str = "video", has_ffmpeg: bool = False, format: str = ""
+) -> tuple[dict[str, Any], int]:
     # format_sel = ytdlopts["format"]
     if type == "video":
         format += (
@@ -261,7 +248,7 @@ def check(query: str, type: str = "video", has_ffmpeg: bool = False, format: str
     elif type == "audio":
         format += "/bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio"
     else:
-        return jsonify({"error": "Invalid type"}), 400
+        return {"error": "Invalid type"}, 400
 
     if format.startswith("/"):
         format = format[1:]
@@ -277,9 +264,7 @@ def check(query: str, type: str = "video", has_ffmpeg: bool = False, format: str
     )
 
     if not info.pop("success", False):
-        return jsonify({"error": info.get("error", "Unknown error")}), info.get(
-            "code", 500
-        )
+        return {"error": info.get("error", "Unknown error")}, info.get("code", 500)
 
     ret_data = {
         "title": info.get("title", info.get("id", "")),
@@ -300,11 +285,11 @@ def check(query: str, type: str = "video", has_ffmpeg: bool = False, format: str
             }
             for i in info.get("requested_formats", [])
         ]
-        return jsonify(ret_data)
+        return ret_data, 200
 
     url = info.get("url")
     if not url:
-        return jsonify({"error": "No url found"}), 404
+        return {"error": "No url found"}, 404
 
     ret_data["video_id"] = encode(url)
     if (
@@ -314,16 +299,18 @@ def check(query: str, type: str = "video", has_ffmpeg: bool = False, format: str
         ret_data["url"] = "/api/ytdl/part-download"
         ret_data["filesize_approx"] = filesize_approx
 
-    return jsonify(ret_data)
+    return ret_data, 200
 
 
 @app.get(PREFIX + "/range-download")
 @require_argument(["video_id"])
 @check_arguments(["range_start"])
-def range_download(video_id: str, range_start: int | str = 0):
+def range_download(
+    video_id: str, range_start: int | str = 0
+) -> tuple[dict[str, str], int] | Response:
     url = decode(video_id)
     if not url:
-        return jsonify({"error": "Invalid video id"}), 400
+        return {"error": "Invalid video id"}, 400
 
     if isinstance(range_start, str):
         range_start = int(range_start)
@@ -334,10 +321,10 @@ def range_download(video_id: str, range_start: int | str = 0):
         stream=True,
     )
     if not r.ok:
-        return jsonify({"error": "Download failed"}), r.status_code
+        return {"error": "Download failed"}, r.status_code
 
     if r.status_code != 206:
-        return jsonify({"error": "Download failed"}), 500
+        return {"error": "Download failed"}, 500
 
     resp_headers: dict[str, str] = {
         "Content-Length": r.headers.get("Content-Length", "0"),
@@ -362,7 +349,7 @@ def range_download(video_id: str, range_start: int | str = 0):
 @require_argument(["video_id", "filesize_approx", "range_start"])
 def part_download(video_id: str, filesize_approx: str | int, range_start: str | int):
     if not video_id:
-        return jsonify({"error": "Invalid video id"}), 400
+        return {"error": "Invalid video id"}, 400
 
     if isinstance(filesize_approx, str):
         filesize_approx = int(filesize_approx)
@@ -372,21 +359,21 @@ def part_download(video_id: str, filesize_approx: str | int, range_start: str | 
 
     remaining = filesize_approx - range_start
     if remaining < 0:
-        return jsonify({"status": "finished"}), 226
+        return {"status": "finished"}, 226
 
-    return jsonify(
-        {
-            "url": f"/api/ytdl/range-download?video_id={video_id}&range_start={range_start}",
-        }
-    )
+    return {
+        "url": f"/api/ytdl/range-download?video_id={video_id}&range_start={range_start}",
+    }, 200
 
 
 @app.get(PREFIX + "/download")
 @require_argument(["video_id"])
-def download(video_id: str):
+def download(
+    video_id: str,
+) -> tuple[dict[str, str], int] | Response:
     url = decode(video_id)
     if not url:
-        return jsonify({"error": "Invalid video id"}), 400
+        return {"error": "Invalid video id"}, 400
 
     range_start = request.headers.get("Range")
     if range_start:
@@ -396,11 +383,11 @@ def download(video_id: str):
 
     r = requests.get(url, headers={"Range": "bytes=0-"}, stream=True)
     if not r.ok:
-        return jsonify({"error": "Download failed"}), r.status_code
+        return {"error": "Download failed"}, r.status_code
 
     filesize_approx = int(r.headers.get("Content-Length", 0))
     if filesize_approx and filesize_approx >= MAX_RESPONE_SIZE:
-        return jsonify({"error": "Not supported"}), 501
+        return {"error": "Not supported"}, 501
 
     def wrapper():
         for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
