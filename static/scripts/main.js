@@ -234,7 +234,7 @@ async function ffmpegDownload({ filename, videoData, videoTitle, videoExt, audio
   );
   const data = await ffmpeg.readFile(outputName);
   const blob = new Blob([data], { type: `video/${videoExt}` });
-  saveAs(blob, filename);
+  saveAs(blob, outputName);
   animateDownloadText("download")
   await Promise.all([
     ffmpeg.deleteFile(videoName),
