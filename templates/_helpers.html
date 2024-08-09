@@ -1,0 +1,25 @@
+{% macro button(text, class='', outline=False, selected=False) %}
+  {% set classes = classlist(class) %}
+  {% if outline %}{{ classes.add("box-outline") }}{% endif %}
+  {% if selected %}{{ classes.add("selected") }}{% endif %}
+  <button-component {{ classes }} {{ kwargs|xmlattr }}>
+    {{ text }}
+  </button-component>
+
+{% endmacro %}
+
+
+{% macro popup_panel(title='', visible=False, close_callback='') %}
+  {% set classes = classlist(class, default=['popup']) %}
+  {% if visible %}
+    {{ classes.add("visible") }}
+  {% else %}
+    {{ classes.add("hidden") }}
+  {% endif %}
+  <div {{ classes }} {{ kwargs|xmlattr }}>
+    {% if title %}<p>{{ title }}</p>{% endif %}
+    <div class="popup-content">{{ caller() }}</div>
+    {{ button('close', onclick=close_callback) }}
+  </div>
+
+{% endmacro %}
