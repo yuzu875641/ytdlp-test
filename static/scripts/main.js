@@ -37,7 +37,7 @@ function sleep(ms) {
 }
 
 async function resetDownloadText(setOriginal = true) {
-  const downloadText = document.getElementById("download-text")
+  const downloadText = document.getElementById("download-button")
   downloadText.classList.remove("red")
   downloadText.classList.remove("no-opacity")
   if (setOriginal) {
@@ -46,7 +46,7 @@ async function resetDownloadText(setOriginal = true) {
 }
 
 async function animateDownloadText(afterText = "download", options = { animation: true, isError: false }) {
-  const downloadText = document.getElementById("download-text");
+  const downloadText = document.getElementById("download-button");
   if (options.animation) {
     downloadText.classList.add("no-opacity");
     await sleep(200);
@@ -64,7 +64,8 @@ async function animateErrorText(afterText) {
   await animateDownloadText(afterText, { isError: true });
 }
 
-function submitWrapper(url) {
+function submitWrapper() {
+  const url = document.getElementById('url-input').value
   const downloadBtn = document.getElementById("download-button");
   if (downloadBtn.classList.contains("disabled")) {
     return;
@@ -286,4 +287,10 @@ function audioSwitch() {
   document.getElementsByClassName("av-wrapper")[0].setAttribute("data-value", "audio")
   document.getElementById("audio-switch").classList.add("selected")
   document.getElementById("video-switch").classList.remove("selected")
+}
+
+function togglePopup(name) {
+  const popup = document.getElementById(`${name}-popup`)
+  popup.classList.toggle("hidden")
+  popup.classList.toggle("visible")
 }

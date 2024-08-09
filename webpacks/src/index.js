@@ -16,7 +16,7 @@ window.onload = function () {
     (async () => {
         const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd"
         window.WP_ffmpeg.on("progress", ({ progress, time }) => {
-            const downloadText = document.getElementById("download-text")
+            const downloadText = document.getElementById("download-button")
             downloadText.innerHTML = `ffmpeg-ing... ${Math.floor(progress * 100)}%`
             console.log(progress, time);
         });
