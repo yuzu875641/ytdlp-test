@@ -1,4 +1,37 @@
 {
   "python.analysis.typeCheckingMode": "basic",
-  "javascript.validate.enable": true
+  "javascript.validate.enable": true,
+  // Add emmet tag autocomplete for jinja and django templates
+  "emmet.includeLanguages": {
+    "jinja2": "html",
+    "jinja-html": "html",
+    "django-html": "html"
+  },
+  "djlint.formatLanguages": [
+    "django-html",
+    "jinja",
+    "jinja-html",
+    "nj",
+    "njk",
+    "nunjucks",
+    "twig",
+    "handlebars",
+    "hbs",
+    "mustache",
+    "html"
+  ],
+  // Add specific formatting rules as needed, e.g.:
+  "djlint.closeVoidTags": false,
+  "djlint.formatAttributeTemplateTags": true,
+  // "djlint.formatCss": true,
+  // "djlint.formatJs": true,
+  "djlint.lineBreakAfterMultilineTag": false,
+  "djlint.maxBlankLines": 5,
+  "djlint.maxLineLength": 100,
+  "djlint.maxAttributeLength": 100,
+  "[jinja-html]": {
+    "editor.defaultFormatter": "monosans.djlint"
+  },
+  "djlint.ignore": ["H014"],
+  "python.analysis.autoImportCompletions": true
 }
