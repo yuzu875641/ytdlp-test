@@ -33,6 +33,5 @@
     "editor.defaultFormatter": "monosans.djlint"
   },
   "djlint.ignore": ["H014"],
-  "python.analysis.autoImportCompletions": true,
-  "git.terminalAuthentication": false
+  "python.analysis.autoImportCompletions": true
 }
