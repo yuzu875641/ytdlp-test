@@ -32,6 +32,6 @@
   "[jinja-html]": {
     "editor.defaultFormatter": "monosans.djlint"
   },
-  "djlint.ignore": ["H014"],
+  "djlint.ignore": ["H014", "H020"],
   "python.analysis.autoImportCompletions": true
 }
