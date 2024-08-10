@@ -1,4 +1,4 @@
-{% from '_helpers.html' import button, popup_panel with context %}
+{% from '_helpers.html' import button, modal with context %}
 
 <!DOCTYPE html>
 <html lang="en">
@@ -46,16 +46,16 @@
         </div>
       </div>
     </div>
-    {% call popup_panel('settings', True, id='settings-popup', close_callback="togglePopup('settings')") %}
+    {% call modal('settings', True, id='settings-modal', close_callback="toggleModal('settings')") %}
       <p>hello</p>
     {% endcall %}
-    {% call popup_panel('about', id='about-popup', close_callback="togglePopup('about')") %}
+    {% call modal('about', id='about-modal', close_callback="toggleModal('about')") %}
       <p>hello</p>
     {% endcall %}
     <footer>
-      {{ button('about', onclick="togglePopup('about')", outline=True) }}
-      {{ button('donate', onclick="togglePopup('about')", outline=True) }}
-      {{ button('settings', onclick="togglePopup('settings')", outline=True) }}
+      {{ button('about', onclick="toggleModal('about')", outline=True) }}
+      {{ button('donate', onclick="toggleModal('about')", outline=True) }}
+      {{ button('settings', onclick="toggleModal('settings')", outline=True) }}
     </footer>
   </body>
 

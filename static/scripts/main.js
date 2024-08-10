@@ -290,7 +290,7 @@ function audioSwitch() {
 }
 
 function togglePopup(name) {
-  const popup = document.getElementById(`${name}-popup`)
-  popup.classList.toggle("hidden")
-  popup.classList.toggle("visible")
+  const modal = document.getElementById(`${name}-modal`)
+  modal.classList.toggle("hidden")
+  modal.classList.toggle("visible")
 }

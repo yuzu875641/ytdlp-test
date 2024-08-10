@@ -9,8 +9,8 @@
 {% endmacro %}
 
 
-{% macro popup_panel(title='', visible=False, close_callback='') %}
-  {% set classes = classlist(class, default=['popup']) %}
+{% macro modal(title='', visible=False, close_callback='') %}
+  {% set classes = classlist(class, default=['modal']) %}
   {% if visible %}
     {{ classes.add("visible") }}
   {% else %}
@@ -18,7 +18,7 @@
   {% endif %}
   <div {{ classes }} {{ kwargs|xmlattr }}>
     {% if title %}<p>{{ title }}</p>{% endif %}
-    <div class="popup-content">{{ caller() }}</div>
+    <div class="modal-content">{{ caller() }}</div>
     {{ button('close', onclick=close_callback) }}
   </div>
 
