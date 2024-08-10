@@ -1,4 +1,4 @@
-{% from '_helpers.html' import button, modal with context %}
+{% from '_helpers.html' import button, modal, toggle_modal_options, input_modal_options with context %}
 
 <!DOCTYPE html>
 <html lang="en">
@@ -9,6 +9,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>hewwo</title>
     <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/global.css') }}" />
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/modal.css') }}" />
     <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/awm.css') }}" />
     <script src="{{ url_for('static', filename='scripts/dist/webpack.js') }}"></script>
     <script src="{{ url_for('static', filename='scripts/main.js') }}"></script>
@@ -46,8 +47,17 @@
         </div>
       </div>
     </div>
-    {% call modal('settings', True, id='settings-modal', close_callback="toggleModal('settings')") %}
-      <p>hello</p>
+    {% call modal('settings', True, id='settings-modal', content_width='45%', close_callback="toggleModal('settings')") %}
+      {{ toggle_modal_options(title='Use FFMpeg', input_id='use-ffmpeg', description='If disable, you can only download low-quality video, or HQ video without audio for Y*utube') }}
+      {{ input_modal_options(title='yt-dlp format selection', input_id='ytdl-fsl', description='You can check out yt-dlp documentation for more info') }}
+      {#
+      {{ toggle_modal_options(title='test', input_id='testInput') }}
+      {{ input_modal_options(title='test', input_id='testInput') }}
+      {{ input_modal_options(title='test', input_id='testInput') }}
+      {{ input_modal_options(title='test', input_id='testInput') }}
+      {{ input_modal_options(title='test', input_id='testInput') }}
+      {{ input_modal_options(title='test', input_id='testInput') }}
+      {{ input_modal_options(title='test', description='testdescription', input_id='testInput') }} #}
     {% endcall %}
     {% call modal('about', id='about-modal', close_callback="toggleModal('about')") %}
       <p>hello</p>

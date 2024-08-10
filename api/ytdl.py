@@ -45,7 +45,7 @@ class ClassList(MutableSet):
     a set of identifiers that should be managed like CSS classes.
     """
 
-    def __init__(self, arg=None, default: Iterable[str] | None = None):
+    def __init__(self, arg: str | Iterable | None = None, *args: str):
         """Constructor.
         :param arg: A single class name or an iterable thereof.
         """
@@ -57,9 +57,8 @@ class ClassList(MutableSet):
             raise TypeError("expected a string or string iterable, got %r" % type(arg))
 
         self.classes = set(filter(None, classes))
-
-        if default is not None:
-            self.add(*default)
+        if args:
+            self.classes.update(args)
 
     def __contains__(self, class_):
         return class_ in self.classes

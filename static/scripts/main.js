@@ -289,7 +289,7 @@ function audioSwitch() {
   document.getElementById("video-switch").classList.remove("selected")
 }
 
-function togglePopup(name) {
+function toggleModal(name) {
   const modal = document.getElementById(`${name}-modal`)
   modal.classList.toggle("hidden")
   modal.classList.toggle("visible")

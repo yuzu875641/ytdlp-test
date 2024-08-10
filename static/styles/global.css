@@ -209,39 +209,3 @@ button-component.disabled {
 #download-button.red {
   color: red;
 }
-
-.popup {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  z-index: 999;
-  gap: var(--gap);
-}
-
-.popup.visible {
-  transition: opacity 0.2s ease-in-out;
-}
-
-.popup.hidden {
-  transition: visibility 0s 0.2s, opacity 0.2s ease-in-out;
-}
-
-.popup-content {
-  background-color: var(--accent);
-  width: 50%;
-  height: 50%;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-around;
-  align-items: center;
-  border-radius: 7px;
-  padding: var(--padding);
-  gap: var(--gap);
-}

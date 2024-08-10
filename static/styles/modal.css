@@ -1,0 +1,159 @@
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 999;
+  gap: var(--gap);
+}
+
+.modal.visible {
+  transition: opacity 0.2s ease-in-out;
+}
+
+.modal.hidden {
+  transition: visibility 0s 0.2s, opacity 0.2s ease-in-out;
+}
+
+.modal-content {
+  background-color: var(--accent);
+  width: 50%;
+  height: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-radius: 7px;
+  padding: var(--padding);
+  gap: var(--gap);
+  overflow-y: auto;
+}
+
+.modal-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+  background: red;
+  border-radius: 10px;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+  background: #b30000;
+}
+
+.toggle-modal-options,
+.input-modal-options {
+  --text: #ffffff;
+  --text-description: #9c9c9c;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 95%;
+  padding: 12px 0;
+}
+
+.toggle-modal-options {
+  --line: #ffffff;
+  --dot: #ffffff;
+  --circle: #434343;
+  --duration: 0.3s;
+}
+
+.modal-toggle-button {
+  cursor: pointer;
+}
+
+.modal-toggle-button input {
+  display: none;
+}
+.modal-toggle-button input + div {
+  position: relative;
+}
+.modal-toggle-button input + div:before,
+.modal-toggle-button input + div:after {
+  --s: 1;
+  content: "";
+  position: absolute;
+  height: 4px;
+  top: 10px;
+  width: 24px;
+  background: var(--line);
+  transform: scaleX(var(--s));
+  transition: transform var(--duration) ease;
+}
+.modal-toggle-button input + div:before {
+  --s: 0;
+  left: 0;
+  transform-origin: 0 50%;
+  border-radius: 2px 0 0 2px;
+}
+.modal-toggle-button input + div:after {
+  left: 28px;
+  transform-origin: 100% 50%;
+  border-radius: 0 2px 2px 0;
+}
+.modal-toggle-button input + div span {
+  padding-left: 56px;
+  line-height: 24px;
+  color: var(--text);
+}
+.modal-toggle-button input + div span:before {
+  --x: 0;
+  --b: var(--circle);
+  --s: 4px;
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 var(--s) var(--b);
+  transform: translateX(var(--x));
+  transition: box-shadow var(--duration) ease, transform var(--duration) ease;
+}
+.modal-toggle-button input + div span:not(:empty) {
+  padding-left: 64px;
+}
+.modal-toggle-button input:checked + div:before {
+  --s: 1;
+}
+.modal-toggle-button input:checked + div:after {
+  --s: 0;
+}
+.modal-toggle-button input:checked + div span:before {
+  --x: 28px;
+  --s: 12px;
+  --b: var(--dot);
+}
+
+.toggle-modal-title,
+.input-modal-title {
+  color: var(--text);
+}
+
+.toggle-modal-description,
+.input-modal-description {
+  max-width: 75%;
+  color: var(--text-description);
+  font-size: small;
+}
+
+.input-modal-options input {
+  background: none;
+  border: 0;
+  border-bottom: 0.1rem solid rgb(110, 110, 110);
+  outline: none;
+  line-height: 24px;
+  transition: border-bottom-color 0.3s ease;
+}
+
+.input-modal-options input:focus {
+  border-bottom-color: rgb(255, 255, 255);
+}
