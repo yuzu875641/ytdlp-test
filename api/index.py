@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask, render_template
+from utils import ClassList
 
 PREFIX = "/"
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
@@ -10,6 +11,7 @@ app = Flask(
     template_folder=os.path.join(BASEDIR, *[os.path.pardir, "templates"]),
     static_folder=os.path.join(BASEDIR, *[os.path.pardir, "static"]),
 )
+app.add_template_global(ClassList, name="classlist")
 
 
 @app.route(PREFIX)

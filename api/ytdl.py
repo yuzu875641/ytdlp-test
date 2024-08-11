@@ -1,5 +1,5 @@
 import os
-from typing import Any, Iterable, MutableSet
+from typing import Any, Iterable
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 
 from flask import (
@@ -11,6 +11,8 @@ from flask import (
 )
 import requests
 from yt_dlp import YoutubeDL, DownloadError
+
+from utils import ClassList
 
 MAX_RESPONE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
@@ -24,6 +26,8 @@ app = Flask(
     template_folder=os.path.join(BASEDIR, *[os.path.pardir, "templates"]),
     static_folder=os.path.join(BASEDIR, *[os.path.pardir, "static"]),
 )
+app.add_template_global(ClassList, name="classlist")
+
 ytdlopts = {
     "color": "no_color",
     "format": "(bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best)[protocol^=http][protocol!*=dash]",
@@ -37,54 +41,6 @@ ytdlopts = {
     "no_warnings": True,
     "source_address": "0.0.0.0",
 }
-
-
-@app.template_global("classlist")
-class ClassList(MutableSet):
-    """Data structure for holding, and ultimately returning as a single string,
-    a set of identifiers that should be managed like CSS classes.
-    """
-
-    def __init__(self, arg: str | Iterable | None = None, *args: str):
-        """Constructor.
-        :param arg: A single class name or an iterable thereof.
-        """
-        if isinstance(arg, str):
-            classes = arg.split()
-        elif isinstance(arg, Iterable):
-            classes = arg
-        elif arg is not None:
-            raise TypeError("expected a string or string iterable, got %r" % type(arg))
-
-        self.classes = set(filter(None, classes))
-        if args:
-            self.classes.update(args)
-
-    def __contains__(self, class_):
-        return class_ in self.classes
-
-    def __iter__(self):
-        return iter(self.classes)
-
-    def __len__(self):
-        return len(self.classes)
-
-    def add(self, *classes):
-        for class_ in classes:
-            self.classes.add(class_)
-        return ""
-
-    def discard(self, *classes):
-        for class_ in classes:
-            self.classes.discard(class_)
-
-        return ""
-
-    def __str__(self):
-        return " ".join(sorted(self.classes))
-
-    def __html__(self):
-        return 'class="%s"' % self if self else ""
 
 
 def get_extractor(
