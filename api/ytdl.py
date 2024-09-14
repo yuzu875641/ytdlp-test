@@ -47,6 +47,7 @@ class ClassList(MutableSet):
 
     def __init__(self, arg: str | Iterable | None = None, *args: str):
         """Constructor.
+
         :param arg: A single class name or an iterable thereof.
         """
         if isinstance(arg, str):

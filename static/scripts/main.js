@@ -20,16 +20,13 @@ function humanFileSize(bytes, si = false, dp = 1) {
   return bytes.toFixed(dp) + ' ' + units[u];
 }
 
-function isValidHttpUrl(string) {
-  let url;
-
+function isValidHttpUrl(urlString) {
   try {
-    url = new URL(string);
+    const url = new URL(urlString);
+    return url.protocol === 'http:' || url.protocol === 'https:';
   } catch (_) {
     return false;
   }
-
-  return url.protocol === "http:" || url.protocol === "https:";
 }
 
 function sleep(ms) {
@@ -64,25 +61,25 @@ async function animateErrorText(afterText) {
   await animateDownloadText(afterText, { isError: true });
 }
 
-function submitWrapper() {
-  const url = document.getElementById('url-input').value
-  const downloadBtn = document.getElementById("download-button");
-  if (downloadBtn.classList.contains("disabled")) {
+async function handleSubmit() {
+  const input = document.getElementById("url-input");
+  const url = input.value;
+  const downloadButton = document.getElementById("download-button");
+
+  if (downloadButton.classList.contains("disabled")) {
     return;
   }
-  downloadBtn.classList.add("disabled");
-  submit(url)
-    .then(async (errorMsg) => {
-      if (errorMsg != undefined) {
-        animateErrorText(errorMsg);
-      }
-    })
-    .finally(() => {
-      sleep(2000).then(() => {
-        animateDownloadText("download");
-        downloadBtn.classList.remove("disabled");
-      });
-    });
+
+  downloadButton.classList.add("disabled");
+  try {
+    await submit(url);
+  } catch (error) {
+    animateErrorText(error.message);
+  } finally {
+    await sleep(2000);
+    animateDownloadText("download");
+    downloadButton.classList.remove("disabled");
+  }
 }
 
 async function submit(url) {
@@ -120,7 +117,7 @@ async function submit(url) {
         };
 
         for (const format of data.requested_formats) {
-          const fileData = format.is_part ? await partsDownload(format) : await window.WP_fetchFile(`/api/ytdl/download?video_id=${format.video_id}`);
+          const fileData = format.is_part ? await downloadParts(format) : await window.WP_fetchFile(`/api/ytdl/download?video_id=${format.video_id}`);
           params[`${format.type}Data`] = fileData;
           params[`${format.type}Ext`] = format.ext;
           params[`${format.type}Title`] = format.format_id;
@@ -130,7 +127,7 @@ async function submit(url) {
       }
 
       if (data.is_part == true) {
-        return await partsDownload(data)
+        return await downloadParts(data)
           .then((blob) => {
             saveAs(blob, data.title + "." + data.ext);
           })
@@ -189,53 +186,40 @@ async function parts(bufferList, url, video_id, filesize_approx, range_start) {
   await parts(bufferList, url, video_id, filesize_approx, new_range_start)
 }
 
-async function ffmpegDownload({ filename, videoData, videoTitle, videoExt, audioData, audioTitle, audioExt }) {
-  const videoName = videoTitle + "." + videoExt
-  const audioName = audioTitle + "." + audioExt
-  const outputName = filename + "." + videoExt
+async function ffmpegDownload(videoData, videoTitle, videoExt, audioData, audioTitle, audioExt, filename) {
+  const videoName = `${videoTitle}.${videoExt}`;
+  const audioName = `${audioTitle}.${audioExt}`;
+  const outputName = `${filename}.${videoExt}`;
 
-  if (videoData.constructor === Blob) {
-    videoData = new Uint8Array(await videoData.arrayBuffer());
-  }
-  if (audioData.constructor === Blob) {
-    audioData = new Uint8Array(await audioData.arrayBuffer());
-  }
-
-  animateDownloadText(`ffmpeg-ing...`)
+  videoData = new Uint8Array(await (videoData instanceof Blob ? videoData.arrayBuffer() : Promise.resolve(videoData)));
+  audioData = new Uint8Array(await (audioData instanceof Blob ? audioData.arrayBuffer() : Promise.resolve(audioData)));
 
   const ffmpeg = window.WP_ffmpeg;
   if (ffmpeg === undefined || !ffmpeg.loaded) {
-    animateErrorText("ffmpeg not loaded")
-    return;
+    return Promise.reject(new Error("ffmpeg not loaded"));
   }
 
   await Promise.all([
-    ffmpeg.writeFile(
-      videoName,
-      videoData
-    ),
-    ffmpeg.writeFile(
-      audioName,
-      audioData
-    ),
-  ])
+    ffmpeg.writeFile(videoName, videoData),
+    ffmpeg.writeFile(audioName, audioData),
+  ]);
 
-  await ffmpeg.exec(
-    [
-      "-i",
-      videoName,
-      "-i",
-      audioName,
-      "-c:v",
-      "copy",
-      "-c:a",
-      "copy",
-      outputName
-    ],
-  );
+  await ffmpeg.exec([
+    "-i",
+    videoName,
+    "-i",
+    audioName,
+    "-c:v",
+    "copy",
+    "-c:a",
+    "copy",
+    outputName,
+  ]);
+
   const data = await ffmpeg.readFile(outputName);
   const blob = new Blob([data], { type: `video/${videoExt}` });
   saveAs(blob, outputName);
+
   animateDownloadText("download")
   await Promise.all([
     ffmpeg.deleteFile(videoName),
@@ -244,15 +228,13 @@ async function ffmpegDownload({ filename, videoData, videoTitle, videoExt, audio
   ]);
 }
 
-async function partsDownload(data) {
-  const url = data.url || "/api/ytdl/part-download";
+async function downloadParts(data) {
+  const { url = "/api/ytdl/part-download", videoId, fileSizeApprox } = data;
   const bufferList = [];
-  const video_id = data.video_id;
-  const filesize_approx = data.filesize_approx;
 
-  await parts(bufferList, url, video_id, filesize_approx, 0);
-  const blob = new Blob(bufferList, { type: "application/octet-stream" });
-  return blob;
+  await parts(bufferList, url, videoId, fileSizeApprox, 0);
+
+  return new Blob(bufferList, { type: "application/octet-stream" });
 }
 
 function download(data) {
@@ -262,18 +244,20 @@ function download(data) {
   a.click();
 }
 
-function checkInput(input) {
-  const downloadBtn = document.getElementById("download-button")
-  if (input.value == "") {
-    downloadBtn.classList.remove("disabled")
-    resetDownloadText()
-    return
+function checkInput(inputElement) {
+  const input = inputElement.value;
+  const downloadButton = document.getElementById("download-button");
+
+  if (input === "") {
+    downloadButton.classList.remove("disabled");
+    resetDownloadText();
+    return;
   }
 
-  if (isValidHttpUrl(input.value)) {
-    downloadBtn.classList.remove("disabled")
+  if (isValidHttpUrl(input)) {
+    downloadButton.classList.remove("disabled");
   } else {
-    downloadBtn.classList.add("disabled")
+    downloadButton.classList.add("disabled");
   }
 }
 
