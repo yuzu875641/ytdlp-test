@@ -311,14 +311,14 @@ def check(
         "ext": info.get("ext", "bin"),
     }
     if has_ffmpeg and "requested_formats" in info:
-        ret_data["needs_ffmpeg"] = True
-        ret_data["requested_formats"] = [
+        ret_data["needFFmpeg"] = True
+        ret_data["requestedFormats"] = [
             {
-                "video_id": encode(i["url"]),
+                "videoId": encode(i["url"]),
                 "ext": i["ext"],
-                "format_id": i.get("format_id", "0"),
-                "filesize_approx": i.get("filesize_approx", 0),
-                "is_part": i.get("filesize_approx", 0) >= MAX_RESPONE_SIZE,
+                "formatId": i.get("format_id", "0"),
+                "fileSizeApprox": i.get("filesize_approx", 0),
+                "isPart": i.get("filesize_approx", 0) >= MAX_RESPONE_SIZE,
                 "type": "audio"
                 if i.get("audio_channels") and i["audio_channels"] > 0
                 else "video",
@@ -331,13 +331,13 @@ def check(
     if not url:
         return {"error": "No url found"}, 404
 
-    ret_data["video_id"] = encode(url)
+    ret_data["videoId"] = encode(url)
     if (
         filesize_approx := info.get("filesize_approx", MAX_RESPONE_SIZE)
     ) >= MAX_RESPONE_SIZE:
-        ret_data["is_part"] = True
+        ret_data["isPart"] = True
         ret_data["url"] = "/api/ytdl/part-download"
-        ret_data["filesize_approx"] = filesize_approx
+        ret_data["fileSizeApprox"] = filesize_approx
 
     return ret_data, 200
 

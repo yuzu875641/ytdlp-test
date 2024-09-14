@@ -108,7 +108,7 @@ async function submit(url) {
   animateDownloadText("downloading...");
   return await response.json()
     .then(async (data) => {
-      if (data.needs_ffmpeg == true) {
+      if (data.needFFmpeg == true) {
         if (!window.WP_ffmpeg.loaded) {
           return "ffmpeg not loaded";
         }
@@ -116,17 +116,17 @@ async function submit(url) {
           filename: data.title,
         };
 
-        for (const format of data.requested_formats) {
-          const fileData = format.is_part ? await downloadParts(format) : await window.WP_fetchFile(`/api/ytdl/download?video_id=${format.video_id}`);
+        for (const format of data.requestedFormats) {
+          const fileData = format.isPart ? await downloadParts(format) : await window.WP_fetchFile(`/api/ytdl/download?video_id=${format.videoId}`);
           params[`${format.type}Data`] = fileData;
           params[`${format.type}Ext`] = format.ext;
-          params[`${format.type}Title`] = format.format_id;
+          params[`${format.type}Title`] = format.formatId;
         }
         await ffmpegDownload(params);
         return;
       }
 
-      if (data.is_part == true) {
+      if (data.isPart == true) {
         return await downloadParts(data)
           .then((blob) => {
             saveAs(blob, data.title + "." + data.ext);
@@ -153,16 +153,16 @@ function saveAs(blob, filename) {
   }, 100);
 }
 
-async function parts(bufferList, url, video_id, filesize_approx, range_start) {
+async function parts(bufferList, url, videoId, fileSizeApprox, rangeStart) {
   const postResp = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      video_id: video_id,
-      range_start: range_start,
-      filesize_approx: filesize_approx
+      video_id: videoId,
+      range_start: rangeStart,
+      filesize_approx: fileSizeApprox
     }),
   })
 
@@ -177,16 +177,16 @@ async function parts(bufferList, url, video_id, filesize_approx, range_start) {
   }
 
   const contentLength = getResp.headers.get("Content-Length")
-  const new_range_start = Number(range_start) + Number(contentLength)
+  const newRangeStart = Number(rangeStart) + Number(contentLength)
 
-  animateDownloadText(`downloading... ${humanFileSize(new_range_start)}/${humanFileSize(filesize_approx)}`, { animation: false })
+  animateDownloadText(`downloading... ${humanFileSize(newRangeStart)}/${humanFileSize(fileSizeApprox)}`, { animation: false })
 
   arrayBuffer = await getResp.arrayBuffer()
   bufferList.push(arrayBuffer)
-  await parts(bufferList, url, video_id, filesize_approx, new_range_start)
+  await parts(bufferList, url, videoId, fileSizeApprox, newRangeStart)
 }
 
-async function ffmpegDownload(videoData, videoTitle, videoExt, audioData, audioTitle, audioExt, filename) {
+async function ffmpegDownload({ videoData, videoTitle, videoExt, audioData, audioTitle, audioExt, filename }) {
   const videoName = `${videoTitle}.${videoExt}`;
   const audioName = `${audioTitle}.${audioExt}`;
   const outputName = `${filename}.${videoExt}`;
@@ -239,7 +239,7 @@ async function downloadParts(data) {
 
 function download(data) {
   const a = document.createElement("a");
-  a.href = `/api/ytdl/download?video_id=${data.video_id}`;
+  a.href = `/api/ytdl/download?video_id=${data.videoId}`;
   a.download = data.title + "." + data.ext;
   a.click();
 }
