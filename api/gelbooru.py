@@ -1,18 +1,49 @@
 from random import randint
+import re
 import requests
-from flask import Flask, Response
+from flask import Flask, Response, request
+from timeit import default_timer as timer
 
-PREFIX = "/api/gelbooru"
-TAGS = ["suzuran_(spring_praise)_(arknights)", "-rating:explicit"]
-
+PREFIX = "/api/gelbooru" if __name__ != "__main__" else "/"
+TAGS = ["suzuran_(spring_praise)_(arknights)", "rating:general"]
+API_URL = (
+    "https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&limit={}&tags={}"
+)
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+}
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 
-class EmptyResponse(Exception):
+class NoImageFound(Exception):
     pass
 
 
+class RequestToAPIFailed(Exception):
+    pass
+
+
+class NotMatchRatio(Exception):
+    pass
+
+
+class FailedToExtractCount(Exception):
+    pass
+
+
+def measure_time(func):
+    def wrapper(*args, **kwargs):
+        start = timer()
+        result = func(*args, **kwargs)
+        end = timer()
+        print(f"{func.__name__} took {end - start} seconds")
+        return result
+
+    return wrapper
+
+
+@measure_time
 def str_to_bool(value: str | bool | None) -> bool:
     if value is None:
         return False
@@ -23,72 +54,72 @@ def str_to_bool(value: str | bool | None) -> bool:
     return value.lower() in ("yes", "true", "t", "y", "1")
 
 
+@measure_time
+def make_url(tags: list[str] | str, limit: int = 1) -> str:
+    if isinstance(tags, str):
+        tags = [tags]
+    return API_URL.format(limit, "+".join(tags))
+
+
+@measure_time
 def calculate_size(response: requests.Response):
     return int(response.headers.get("Content-Length", 1048576)) / 1048576
 
 
-def select_image(data: dict) -> requests.Response | None:
-    post = data.get("post", [None])[0]
-    if not post:
-        return None
+@measure_time
+def select_image(data: dict) -> requests.Response:
+    post: dict | None
+    for post in data.get("post", []):
+        if not post:
+            continue
 
-    urls = [post.get("file_url"), post.get("sample_url")]
-    for url in filter(None, urls):
-        response = requests.get(url, stream=True)
-        if response.ok and calculate_size(response) < 4:
-            return response
+        urls = [post.get("file_url"), post.get("sample_url"), post.get("preview_url")]
+        for url in filter(None, urls):
+            response = requests.get(url, stream=True)
+            if response.ok and calculate_size(response) < 4:
+                return response
+
+    raise NoImageFound
 
 
-def get_tags_count(tags: list[str]) -> int:
-    url = "https://gelbooru.com/index.php"
-    params = {
-        "page": "dapi",
-        "s": "post",
-        "q": "index",
-        "json": 1,
-        "tags": "+".join(tags),
-        "limit": 1,
-    }
+@measure_time
+def get_tags_count(tags: list[str] | str) -> int:
+    url = make_url(tags, limit=1)
+    response = requests.get(url, headers=HEADERS, stream=True)
 
-    response = requests.get(
-        url, params="&".join("%s=%s" % (k, v) for k, v in params.items())
+    pattern = re.compile(r"count\W+(\d+)")
+    data: bytes = b""
+    for chunk in response.iter_content(64):
+        data += chunk
+        match = pattern.search(data.decode("utf-8"))
+        if match:
+            return int(match.group(1))
+
+    raise FailedToExtractCount
+
+
+@measure_time
+def get_random_image(tags: list[str] | str, limit: int = 5) -> requests.Response:
+    url = (
+        make_url(tags, limit=limit)
+        + f"&pid={randint(0, get_tags_count(tags) // limit)}"
     )
-    response.raise_for_status()
 
-    data = response.json()
-    return data["@attributes"]["count"]
-
-
-def get_random_image(tags: list[str]) -> requests.Response | None:
-    api_url = "https://gelbooru.com/index.php"
-    api_params = {
-        "page": "dapi",
-        "s": "post",
-        "q": "index",
-        "json": 1,
-        "tags": "+".join(tags),
-        "limit": 1,
-        "pid": randint(1, get_tags_count(tags)),
-    }
-
-    response = requests.get(
-        api_url, params="&".join("%s=%s" % (k, v) for k, v in api_params.items())
-    )
+    response = requests.get(url, headers=HEADERS)
     if not response or not response.ok:
-        raise EmptyResponse()
+        raise RequestToAPIFailed
 
-    data = response.json()
+    data: dict[str, str] = response.json()
     if not data or not data.get("post"):
-        raise EmptyResponse()
+        raise NoImageFound
 
     return select_image(data)
 
 
 @app.after_request
-def add_header(r):
+def add_header(r: Response):
     """
-    Add headers to both force latest IE rendering engine or Chrome Frame,
-    and also to cache the rendered page for 10 minutes.
+    Force cache to be disabled.
     """
     r.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     r.headers["Pragma"] = "no-cache"
@@ -98,14 +129,18 @@ def add_header(r):
 
 
 @app.route(PREFIX)
+@measure_time
 def index():
+    tags = request.args.get("tags", TAGS)
+    limit = request.args.get("limit", 5, int)
     try:
-        image_response = get_random_image(TAGS)
-    except EmptyResponse:
+        image_response = get_random_image(tags, limit)
+    except NoImageFound:
         return "No image found", 404
-
-    if not image_response:
-        return "No image found", 404
+    except RequestToAPIFailed:
+        return "Failed to get image", 500
+    except FailedToExtractCount:
+        return "Failed to extract image count", 500
 
     def generate_response():
         for chunk in image_response.iter_content(1024):
@@ -116,4 +151,4 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host="localhost", port=8000)
