@@ -2,7 +2,6 @@ from random import randint
 import re
 import requests
 from flask import Flask, Response, request
-from timeit import default_timer as timer
 
 PREFIX = "/api/gelbooru" if __name__ != "__main__" else "/"
 TAGS = ["suzuran_(spring_praise)_(arknights)", "rating:general"]
@@ -32,18 +31,6 @@ class FailedToExtractCount(Exception):
     pass
 
 
-def measure_time(func):
-    def wrapper(*args, **kwargs):
-        start = timer()
-        result = func(*args, **kwargs)
-        end = timer()
-        print(f"{func.__name__} took {end - start} seconds")
-        return result
-
-    return wrapper
-
-
-@measure_time
 def str_to_bool(value: str | bool | None) -> bool:
     if value is None:
         return False
@@ -54,19 +41,16 @@ def str_to_bool(value: str | bool | None) -> bool:
     return value.lower() in ("yes", "true", "t", "y", "1")
 
 
-@measure_time
 def make_url(tags: list[str] | str, limit: int = 1) -> str:
     if isinstance(tags, str):
         tags = [tags]
     return API_URL.format(limit, "+".join(tags))
 
 
-@measure_time
 def calculate_size(response: requests.Response):
     return int(response.headers.get("Content-Length", 1048576)) / 1048576
 
 
-@measure_time
 def select_image(data: dict) -> requests.Response:
     post: dict | None
     for post in data.get("post", []):
@@ -82,7 +66,6 @@ def select_image(data: dict) -> requests.Response:
     raise NoImageFound
 
 
-@measure_time
 def get_tags_count(tags: list[str] | str) -> int:
     url = make_url(tags, limit=1)
     response = requests.get(url, headers=HEADERS, stream=True)
@@ -98,7 +81,6 @@ def get_tags_count(tags: list[str] | str) -> int:
     raise FailedToExtractCount
 
 
-@measure_time
 def get_random_image(tags: list[str] | str, limit: int = 5) -> requests.Response:
     url = (
         make_url(tags, limit=limit)
@@ -129,7 +111,6 @@ def add_header(r: Response):
 
 
 @app.route(PREFIX)
-@measure_time
 def index():
     tags = request.args.get("tags", TAGS)
     limit = request.args.get("limit", 5, int)
