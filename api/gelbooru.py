@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import base64
 from random import randint
 import re
 from typing import Literal, TYPE_CHECKING
 import requests
-from flask import Flask, Response, request
+from flask import Flask, Response, redirect, request, url_for
 
 PREFIX = "/api/gelbooru" if __name__ != "__main__" else "/"
 TAGS = ["suzuran_(spring_praise)_(arknights)", "rating:general"]
@@ -61,7 +62,7 @@ def calculate_size(response: requests.Response):
     return int(response.headers.get("Content-Length", 1048576)) / 1048576
 
 
-def select_image(data: dict) -> requests.Response:
+def select_image(data: dict) -> str:
     sizes = dict.fromkeys(
         [
             request.args.get("prefer_size", "file_url"),
@@ -82,12 +83,15 @@ def select_image(data: dict) -> requests.Response:
                 continue
             response = requests.get(url, stream=True)
             if response.ok and calculate_size(response) < 4:
-                return response
+                response.close()
+                return response.url
+        else:
+            response.close()
 
     raise NoImageFound
 
 
-def get_image(url: str) -> requests.Response:
+def get_image(url: str) -> str:
     response = requests.get(url, headers=HEADERS)
     if not response or not response.ok:
         raise RequestToAPIFailed
@@ -114,7 +118,7 @@ def get_tags_count(tags: list[str] | str) -> int:
     raise FailedToExtractCount
 
 
-def get_random_image(tags: list[str] | str, limit: int = 5) -> requests.Response:
+def get_random_image(tags: list[str] | str, limit: int = 5) -> str:
     url = (
         make_url(tags, limit=limit)
         + f"&pid={randint(0, get_tags_count(tags) // limit)}"
@@ -133,18 +137,14 @@ def add_header(r: Response):
     return r
 
 
-@app.route(PREFIX)
-def index():
-    tags = request.args.get("tags", TAGS)
-    limit = request.args.get("limit", 5, int)
+def generate_response(url: str):
     try:
-        image_response = get_random_image(tags, limit)
-    except NoImageFound:
-        return "No image found", 404
-    except RequestToAPIFailed:
+        image_response = requests.get(url, stream=True)
+    except requests.RequestException:
         return "Failed to get image", 500
-    except FailedToExtractCount:
-        return "Failed to extract image count", 500
+
+    if not image_response or not image_response.ok:
+        return "Failed to get image", 500
 
     def generate_response():
         for chunk in image_response.iter_content(1024):
@@ -154,6 +154,29 @@ def index():
     return Response(generate_response(), content_type=content_type)
 
 
+@app.route(PREFIX)
+def index():
+    tags = request.args.get("tags", TAGS)
+    limit = request.args.get("limit", 5, int)
+    try:
+        url = get_random_image(tags, limit)
+        if not url:
+            return "No image found", 404
+    except NoImageFound:
+        return "No image found", 404
+    except RequestToAPIFailed:
+        return "Failed to get image", 500
+    except FailedToExtractCount:
+        return "Failed to extract image count", 500
+
+    if not str_to_bool(request.args.get("proxy", "false")):
+        return generate_response(url)
+
+    return redirect(
+        url_for("proxy", b64url=base64.b64encode(url.encode("utf-8"))), code=302
+    )
+
+
 @app.route(PREFIX + "/post")
 def post():
     id = request.args.get("id")
@@ -161,15 +184,45 @@ def post():
         return "No id provided", 400
 
     try:
-        image_response = get_image(
-            f"https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&id={id}",
+        url = get_image(
+            f"https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&id={id}"
         )
+        if not url:
+            return "No image found", 404
     except NoImageFound:
         return "No image found", 404
     except RequestToAPIFailed:
         return "Failed to get image", 500
     except FailedToExtractCount:
         return "Failed to extract image count", 500
+
+    if not str_to_bool(request.args.get("proxy", "false")):
+        return generate_response(url)
+
+    return redirect(
+        url_for("proxy", b64url=base64.b64encode(url.encode("utf-8"))), code=302
+    )
+
+
+@app.route(PREFIX + "/proxy")
+def proxy():
+    b64url = request.args.get("b64url")
+    if not b64url:
+        return "No b64url provided", 400
+
+    url = base64.b64decode(b64url).decode("utf-8")
+    if not url:
+        return "Invalid b64url", 400
+
+    # return generate_response(lambda: requests.get(url, headers=HEADERS, stream=True))
+
+    try:
+        image_response = requests.get(url, stream=True)
+    except requests.RequestException:
+        return "Failed to get image", 500
+
+    if not image_response or not image_response.ok:
+        return "Failed to get image", 500
 
     def generate_response():
         for chunk in image_response.iter_content(1024):
