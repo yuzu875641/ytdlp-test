@@ -138,20 +138,35 @@ def add_header(r: Response):
 
 
 def generate_response(url: str):
+    headers = dict(HEADERS)
+    # Forward the Range header to the upstream server
+    if "Range" in request.headers:
+        headers["Range"] = request.headers["Range"]
+
     try:
-        image_response = requests.get(url, stream=True)
+        image_response = requests.get(url, headers=headers, stream=True)
     except requests.RequestException:
         return "Failed to get image", 500
 
     if not image_response or not image_response.ok:
         return "Failed to get image", 500
 
-    def generate_response():
+    # Prepare response headers
+    response_headers = {}
+
+    # Copy important headers from the original response
+    for header in ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"]:
+        if header in image_response.headers:
+            response_headers[header] = image_response.headers[header]
+
+    def generate():
         for chunk in image_response.iter_content(1024):
             yield chunk
 
-    content_type = image_response.headers.get("Content-Type")
-    return Response(generate_response(), content_type=content_type)
+    # Use the correct status code (206 for partial content)
+    status_code = image_response.status_code
+
+    return Response(generate(), headers=response_headers, status=status_code)
 
 
 @app.route(PREFIX)
@@ -224,12 +239,7 @@ def proxy():
     if not image_response or not image_response.ok:
         return "Failed to get image", 500
 
-    def generate_response():
-        for chunk in image_response.iter_content(1024):
-            yield chunk
-
-    content_type = image_response.headers.get("Content-Type")
-    return Response(generate_response(), content_type=content_type)
+    return generate_response(url)
 
 
 if __name__ == "__main__":
