@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from random import randint
 import re
+from typing import Literal, TYPE_CHECKING
 import requests
 from flask import Flask, Response, request
 
@@ -13,6 +16,13 @@ HEADERS = {
 }
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+if TYPE_CHECKING:
+    SizeType = Literal[
+        "file_url",
+        "sample_url",
+        "preview_url",
+    ]
 
 
 class NoImageFound(Exception):
@@ -52,18 +62,41 @@ def calculate_size(response: requests.Response):
 
 
 def select_image(data: dict) -> requests.Response:
+    sizes = dict.fromkeys(
+        [
+            request.args.get("prefer_size", "file_url"),
+            "file_url",
+            "sample_url",
+            "preview_url",
+        ]
+    )
+
     post: dict | None
     for post in data.get("post", []):
         if not post:
             continue
 
-        urls = [post.get("file_url"), post.get("sample_url"), post.get("preview_url")]
-        for url in filter(None, urls):
+        for size in sizes:
+            url = post.get(size)
+            if not url:
+                continue
             response = requests.get(url, stream=True)
             if response.ok and calculate_size(response) < 4:
                 return response
 
     raise NoImageFound
+
+
+def get_image(url: str) -> requests.Response:
+    response = requests.get(url, headers=HEADERS)
+    if not response or not response.ok:
+        raise RequestToAPIFailed
+
+    data: dict[str, str] = response.json()
+    if not data or not data.get("post"):
+        raise NoImageFound
+
+    return select_image(data)
 
 
 def get_tags_count(tags: list[str] | str) -> int:
@@ -86,16 +119,7 @@ def get_random_image(tags: list[str] | str, limit: int = 5) -> requests.Response
         make_url(tags, limit=limit)
         + f"&pid={randint(0, get_tags_count(tags) // limit)}"
     )
-
-    response = requests.get(url, headers=HEADERS)
-    if not response or not response.ok:
-        raise RequestToAPIFailed
-
-    data: dict[str, str] = response.json()
-    if not data or not data.get("post"):
-        raise NoImageFound
-
-    return select_image(data)
+    return get_image(url)
 
 
 @app.after_request
@@ -116,6 +140,31 @@ def index():
     limit = request.args.get("limit", 5, int)
     try:
         image_response = get_random_image(tags, limit)
+    except NoImageFound:
+        return "No image found", 404
+    except RequestToAPIFailed:
+        return "Failed to get image", 500
+    except FailedToExtractCount:
+        return "Failed to extract image count", 500
+
+    def generate_response():
+        for chunk in image_response.iter_content(1024):
+            yield chunk
+
+    content_type = image_response.headers.get("Content-Type")
+    return Response(generate_response(), content_type=content_type)
+
+
+@app.route(PREFIX + "/post")
+def post():
+    id = request.args.get("id")
+    if not id:
+        return "No id provided", 400
+
+    try:
+        image_response = get_image(
+            f"https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&id={id}",
+        )
     except NoImageFound:
         return "No image found", 404
     except RequestToAPIFailed:
