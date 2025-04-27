@@ -1,5 +1,4 @@
 {
-  "python.analysis.typeCheckingMode": "basic",
   "javascript.validate.enable": true,
   // Add emmet tag autocomplete for jinja and django templates
   "emmet.includeLanguages": {
@@ -32,6 +31,16 @@
   "[jinja-html]": {
     "editor.defaultFormatter": "monosans.djlint"
   },
-  "djlint.ignore": ["H014", "H020"],
-  "python.analysis.autoImportCompletions": true
+  "djlint.ignore": [
+    "H014",
+    "H020"
+  ],
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.typeCheckingMode": "standard",
+  "ruff.organizeImports": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.ruff": "always",
+    "source.organizeImports.ruff": "always"
+  },
+  "files.eol": "\n",
 }

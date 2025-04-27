@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 import base64
-from random import randint
 import re
-from typing import Literal, TYPE_CHECKING
+from functools import cache
+from random import randint
+from typing import TYPE_CHECKING, Literal
+
 import requests
 from flask import Flask, Response, redirect, request, url_for
 
 PREFIX = "/api/gelbooru" if __name__ != "__main__" else "/"
-TAGS = ["suzuran_(spring_praise)_(arknights)", "rating:general"]
+DEFAULT_TAGS = "+".join(
+    [
+        "suzuran_(spring_praise)_(arknights)",
+        "rating:general",
+    ]
+)
 API_URL = (
     "https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&limit={}&tags={}"
 )
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 }
-app = Flask(__name__)
-app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
 
 if TYPE_CHECKING:
     SizeType = Literal[
@@ -24,6 +30,10 @@ if TYPE_CHECKING:
         "sample_url",
         "preview_url",
     ]
+
+
+app = Flask(__name__)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 
 class NoImageFound(Exception):
@@ -52,18 +62,40 @@ def str_to_bool(value: str | bool | None) -> bool:
     return value.lower() in ("yes", "true", "t", "y", "1")
 
 
-def make_url(tags: list[str] | str, limit: int = 1) -> str:
-    if isinstance(tags, str):
-        tags = [tags]
-    return API_URL.format(limit, "+".join(tags))
+@cache
+def make_url(tags: str, limit: int = 1) -> str:
+    return API_URL.format(limit, tags)
 
 
-def calculate_size(response: requests.Response):
+def is_fit_response_size(response: requests.Response):
     return int(response.headers.get("Content-Length", 1048576)) / 1048576
 
 
-def select_image(data: dict) -> str:
-    sizes = dict.fromkeys(
+def is_fit_aspect_ratio(
+    data: dict,
+    image_size: str | None = None,
+    aspect_ratio: float | None = None,
+) -> bool:
+    if not aspect_ratio:
+        return True
+
+    mapping = {
+        "file_url": ("width", "height"),
+        "sample_url": ("sample_width", "sample_height"),
+        "preview_url": ("preview_width", "preview_height"),
+    }
+
+    width_str, height_str = mapping[image_size if image_size else "file_url"]
+    width: int | None = data.get(width_str)
+    height: int | None = data.get(height_str)
+    if not width or not height:
+        return False
+
+    return abs((width / height) - aspect_ratio) < 0.1
+
+
+def select_image(data: dict, aspect_ratio: float | None = None) -> str:
+    image_sizes = dict.fromkeys(
         [
             request.args.get("prefer_size", "file_url"),
             "file_url",
@@ -72,26 +104,35 @@ def select_image(data: dict) -> str:
         ]
     )
 
-    post: dict | None
+    post: dict | None = None
+    response = None
     for post in data.get("post", []):
         if not post:
             continue
 
-        for size in sizes:
-            url = post.get(size)
+        for image_size in image_sizes:
+            url = post.get(image_size)
             if not url:
                 continue
+
             response = requests.get(url, stream=True)
-            if response.ok and calculate_size(response) < 4:
+            if (
+                response.ok
+                and is_fit_response_size(response) < 4
+                and is_fit_aspect_ratio(
+                    post, image_size=image_size, aspect_ratio=aspect_ratio
+                )
+            ):
                 response.close()
                 return response.url
+
         else:
-            response.close()
+            response.close() if response else None
 
     raise NoImageFound
 
 
-def get_image(url: str) -> str:
+def get_image(url: str, aspect_ratio: float | None = None) -> str:
     response = requests.get(url, headers=HEADERS)
     if not response or not response.ok:
         raise RequestToAPIFailed
@@ -100,10 +141,11 @@ def get_image(url: str) -> str:
     if not data or not data.get("post"):
         raise NoImageFound
 
-    return select_image(data)
+    return select_image(data, aspect_ratio=aspect_ratio)
 
 
-def get_tags_count(tags: list[str] | str) -> int:
+@cache
+def get_tags_count(tags: str) -> int:
     url = make_url(tags, limit=1)
     response = requests.get(url, headers=HEADERS, stream=True)
 
@@ -118,12 +160,23 @@ def get_tags_count(tags: list[str] | str) -> int:
     raise FailedToExtractCount
 
 
-def get_random_image(tags: list[str] | str, limit: int = 5) -> str:
-    url = (
-        make_url(tags, limit=limit)
-        + f"&pid={randint(0, get_tags_count(tags) // limit)}"
-    )
-    return get_image(url)
+def get_random_image(
+    tags: str,
+    limit: int = 5,
+    aspect_ratio: float | None = None,
+) -> str:
+    while True:
+        try:
+            url = (
+                make_url(tags, limit=limit)
+                + f"&pid={randint(0, get_tags_count(tags) // limit)}"
+            )
+            return get_image(url, aspect_ratio=aspect_ratio)
+        except NoImageFound:
+            if aspect_ratio:
+                print("No image found with the given aspect ratio, trying again...")
+                continue
+            raise
 
 
 @app.after_request
@@ -171,10 +224,12 @@ def generate_response(url: str):
 
 @app.route(PREFIX)
 def index():
-    tags = request.args.get("tags", TAGS)
+    tags = request.args.get("tags", DEFAULT_TAGS)
     limit = request.args.get("limit", 5, int)
+    aspect_ratio = request.args.get("aspect_ratio", None, float)
+
     try:
-        url = get_random_image(tags, limit)
+        url = get_random_image(tags, limit, aspect_ratio=aspect_ratio)
         if not url:
             return "No image found", 404
     except NoImageFound:
