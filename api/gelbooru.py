@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import re
 from functools import cache
 from random import randint
@@ -34,6 +35,11 @@ if TYPE_CHECKING:
 
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class NoImageFound(Exception):
@@ -52,6 +58,16 @@ class FailedToExtractCount(Exception):
     pass
 
 
+def logger_decorator(func):
+    def wrapper(*args, **kwargs):
+        logger.debug(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
+        result = func(*args, **kwargs)
+        logger.debug(f"{func.__name__} returned: {result}")
+        return result
+
+    return wrapper
+
+
 def str_to_bool(value: str | bool | None) -> bool:
     if value is None:
         return False
@@ -67,10 +83,12 @@ def make_url(tags: str, limit: int = 1) -> str:
     return API_URL.format(limit, tags)
 
 
+@logger_decorator
 def is_fit_response_size(response: requests.Response):
     return int(response.headers.get("Content-Length", 1048576)) / 1048576
 
 
+@logger_decorator
 def is_fit_aspect_ratio(
     data: dict,
     image_size: str | None = None,
@@ -111,8 +129,9 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> str:
             continue
 
         for image_size in image_sizes:
+            logger.info(f"Trying {image_size} for post {post.get('id')}")
             url = post.get(image_size)
-            if not url:
+            if not url or not isinstance(url, str):
                 continue
 
             response = requests.get(url, stream=True)
@@ -123,6 +142,7 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> str:
                 )
                 and is_fit_response_size(response) < 4
             ):
+                logger.info(f"Selected {image_size} for post {post.get('id')}")
                 response.close()
                 return response.url
 
@@ -165,7 +185,7 @@ def get_random_image(
     limit: int = 5,
     aspect_ratio: float | None = None,
 ) -> str:
-    while True:
+    for _ in range(5):
         try:
             url = (
                 make_url(tags, limit=limit)
@@ -174,9 +194,13 @@ def get_random_image(
             return get_image(url, aspect_ratio=aspect_ratio)
         except NoImageFound:
             if aspect_ratio:
-                print("No image found with the given aspect ratio, trying again...")
+                logger.warning(
+                    "No image found with the given aspect ratio, trying again"
+                )
                 continue
             raise
+
+    raise NoImageFound
 
 
 @app.after_request
