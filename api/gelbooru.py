@@ -109,7 +109,7 @@ def is_fit_aspect_ratio(
     if not width or not height:
         return False
 
-    return abs((width / height) - aspect_ratio) < 0.1
+    return abs((width / height) - aspect_ratio) < 0.15
 
 
 def select_image(data: dict, aspect_ratio: float | None = None) -> str:
