@@ -134,14 +134,14 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> str:
             if not url or not isinstance(url, str):
                 continue
 
-            response = requests.get(url, stream=True)
-            if (
-                response.ok
-                and is_fit_aspect_ratio(
-                    post, image_size=image_size, aspect_ratio=aspect_ratio
-                )
-                and is_fit_response_size(response) < 4
+            if not is_fit_aspect_ratio(
+                post, image_size=image_size, aspect_ratio=aspect_ratio
             ):
+                logger.info(f"Aspect ratio not fit for post {post.get('id')}")
+                break
+
+            response = requests.get(url, stream=True)
+            if response.ok and is_fit_response_size(response) < 4:
                 logger.info(f"Selected {image_size} for post {post.get('id')}")
                 response.close()
                 return response.url
