@@ -118,10 +118,10 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> str:
             response = requests.get(url, stream=True)
             if (
                 response.ok
-                and is_fit_response_size(response) < 4
                 and is_fit_aspect_ratio(
                     post, image_size=image_size, aspect_ratio=aspect_ratio
                 )
+                and is_fit_response_size(response) < 4
             ):
                 response.close()
                 return response.url
