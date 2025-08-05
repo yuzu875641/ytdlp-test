@@ -21,6 +21,10 @@
     {
       "source": "/api/gelbooru/:path*",
       "destination": "/api/gelbooru"
+    },
+    {
+      "source": "/test",
+      "destination": "/api/test"
     }
   ],
   "trailingSlash": false
