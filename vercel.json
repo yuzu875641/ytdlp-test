@@ -2,7 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/test.py": {
-      "runtime": "python3.9",
       "includeFiles": "scripts/test.js"
     }
   },
