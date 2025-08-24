@@ -25,10 +25,6 @@
     {
       "source": "/test",
       "destination": "/api/test"
-    },
-    {
-      "source": "/get-pot",
-      "destination": "/api/get-pot/main"
     }
   ],
   "trailingSlash": false

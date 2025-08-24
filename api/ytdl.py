@@ -1,16 +1,16 @@
 import os
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from typing import Any, Iterable, MutableSet
-from base64 import urlsafe_b64encode, urlsafe_b64decode
 
+import requests
 from flask import (
     Flask,
     Response,
-    request,
     render_template,
+    request,
     stream_with_context,
 )
-import requests
-from yt_dlp import YoutubeDL, DownloadError
+from yt_dlp import DownloadError, YoutubeDL
 
 MAX_RESPONE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
@@ -36,6 +36,11 @@ ytdlopts = {
     "extract_flat": "in_playlist",
     "no_warnings": True,
     "source_address": "0.0.0.0",
+    "extractor_args": {
+        "youtubepot-bgutilhttp": {
+            "base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"
+        }
+    },
 }
 
 
@@ -50,6 +55,7 @@ class ClassList(MutableSet):
 
         :param arg: A single class name or an iterable thereof.
         """
+        classes: Iterable[str] = []
         if isinstance(arg, str):
             classes = arg.split()
         elif isinstance(arg, Iterable):
@@ -70,12 +76,12 @@ class ClassList(MutableSet):
     def __len__(self):
         return len(self.classes)
 
-    def add(self, *classes):
+    def add(self, *classes):  # type: ignore
         for class_ in classes:
             self.classes.add(class_)
         return ""
 
-    def discard(self, *classes):
+    def discard(self, *classes):  # type: ignore
         for class_ in classes:
             self.classes.discard(class_)
 
@@ -357,7 +363,7 @@ def range_download(
 
     r = requests.get(
         url,
-        headers={"Range": f"bytes={range_start}-{range_start+MAX_RESPONE_SIZE}"},
+        headers={"Range": f"bytes={range_start}-{range_start + MAX_RESPONE_SIZE}"},
         stream=True,
     )
     if not r.ok:
