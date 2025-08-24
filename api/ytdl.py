@@ -6,7 +6,7 @@ from typing import Any, Iterable, MutableSet, cast
 
 import redis
 import requests
-from dotenv import dotenv_values
+from dotenv import load_dotenv
 from flask import (
     Flask,
     Response,
@@ -23,31 +23,8 @@ CHUNK_SIZE = 512 * 1024
 BASEDIR = Path(os.path.dirname(os.path.abspath(__file__)))
 PREFIX = "/api/ytdl"
 
-
-def load_env(max_depth: int | None = None, bi_dir: bool = False) -> dict[str, str]:
-    """Load environment variables from .env files.
-
-    :param max_depth: The maximum depth to search for .env files.
-    :param bi_dir: Whether to search in the inside directories.
-    """
-    # TODO: Implement bi_dir functionality
-    env = {}
-    current_dir = BASEDIR
-
-    while current_dir and (max_depth is None or max_depth > 0):
-        env.update(dotenv_values(current_dir / ".env"))
-        env.update(dotenv_values(current_dir / ".env.local"))
-        current_dir = current_dir.parent
-        if max_depth is not None:
-            max_depth -= 1
-
-        if current_dir == current_dir.parent:  # short-circuit on root dir
-            break
-
-        if env:  # load till env is not empty
-            break
-
-    return env
+load_dotenv()
+load_dotenv(".env.local")
 
 
 class CookiesIOWrapper(StringIO):
@@ -69,8 +46,7 @@ class CookiesIOWrapper(StringIO):
         super().close()
 
 
-env_config = {**load_env(max_depth=5), **os.environ}
-redis_client = redis.Redis.from_url(env_config.get("REDIS_URL", ""))
+redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", ""))
 cookies_io = CookiesIOWrapper(redis_client)
 
 app = Flask(
@@ -360,7 +336,7 @@ def check(
     if format.startswith("/"):
         format = format[1:]
 
-    print(env_config)
+    print(os.environ)
     info = extract_info(
         get_extractor(
             config={
