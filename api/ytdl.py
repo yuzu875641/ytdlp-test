@@ -1,16 +1,19 @@
 import os
-from typing import Any, Iterable, MutableSet
-from base64 import urlsafe_b64encode, urlsafe_b64decode
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from io import StringIO
+from typing import Any, Iterable, MutableSet, cast
 
+import redis
+import requests
+from dotenv import dotenv_values
 from flask import (
     Flask,
     Response,
-    request,
     render_template,
+    request,
     stream_with_context,
 )
-import requests
-from yt_dlp import YoutubeDL, DownloadError
+from yt_dlp import DownloadError, YoutubeDL
 
 MAX_RESPONE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
@@ -18,6 +21,34 @@ CHUNK_SIZE = 512 * 1024
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
 PREFIX = "/api/ytdl"
+
+
+class CookiesIOWrapper(StringIO):
+    def __init__(self, redis_client: redis.Redis):
+        self.redis_client = redis_client
+        cookies_result = cast(bytes | None, redis_client.get("cookies_io"))
+        if cookies_result:
+            super().__init__(cookies_result.decode("utf-8"))
+        else:
+            super().__init__()
+
+    def read(self, size: int | None = -1) -> str:
+        if size is None or size < 0:
+            self.seek(0)
+        return super().read(size)
+
+    def close(self):
+        self.redis_client.set("cookies_io", self.getvalue())
+        super().close()
+
+
+env_config = {
+    **dotenv_values(os.path.join(BASEDIR, *[os.path.pardir, ".env"])),
+    **dotenv_values(os.path.join(BASEDIR, *[os.path.pardir, ".env.local"])),
+    **os.environ,
+}
+redis_client = redis.Redis.from_url(env_config.get("REDIS_URL", ""))
+cookies_io = CookiesIOWrapper(redis_client)
 
 app = Flask(
     __name__,
@@ -36,6 +67,12 @@ ytdlopts = {
     "extract_flat": "in_playlist",
     "no_warnings": True,
     "source_address": "0.0.0.0",
+    "extractor_args": {
+        "youtubepot-bgutilhttp": {
+            "base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"
+        }
+    },
+    "cookiefile": cookies_io,
 }
 
 
@@ -50,6 +87,7 @@ class ClassList(MutableSet):
 
         :param arg: A single class name or an iterable thereof.
         """
+        classes: Iterable[str] = []
         if isinstance(arg, str):
             classes = arg.split()
         elif isinstance(arg, Iterable):
@@ -70,12 +108,12 @@ class ClassList(MutableSet):
     def __len__(self):
         return len(self.classes)
 
-    def add(self, *classes):
+    def add(self, *classes):  # type: ignore
         for class_ in classes:
             self.classes.add(class_)
         return ""
 
-    def discard(self, *classes):
+    def discard(self, *classes):  # type: ignore
         for class_ in classes:
             self.classes.discard(class_)
 
@@ -89,7 +127,9 @@ class ClassList(MutableSet):
 
 
 def get_extractor(
-    config: dict | None = None, provider: str = "youtube", search_amount: int = 5
+    config: dict[str, Any] | None = None,
+    provider: str = "youtube",
+    search_amount: int = 5,
 ) -> YoutubeDL:
     if config is None:
         config = ytdlopts
@@ -109,6 +149,7 @@ def get_extractor(
         case _:
             config["default_search"] = f"ytsearch{search_amount}"
 
+    cookies_io.seek(0)
     return YoutubeDL(config)
 
 
@@ -253,6 +294,9 @@ def require_argument(arguments: Iterable[str]):
     return decorator
 
 
+get_extractor().cookiejar
+
+
 @app.post(PREFIX + "/search")
 @require_argument(["query"])
 @check_arguments(["process", "provider", "search_amount"])
@@ -357,7 +401,7 @@ def range_download(
 
     r = requests.get(
         url,
-        headers={"Range": f"bytes={range_start}-{range_start+MAX_RESPONE_SIZE}"},
+        headers={"Range": f"bytes={range_start}-{range_start + MAX_RESPONE_SIZE}"},
         stream=True,
     )
     if not r.ok:

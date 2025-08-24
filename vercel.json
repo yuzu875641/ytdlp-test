@@ -1,9 +1,31 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/test.py": {
+      "includeFiles": "scripts/test.js"
+    }
+  },
   "rewrites": [
-    { "source": "/", "destination": "/api/index" },
-    { "source": "/api", "destination": "/api/index" },
-    { "source": "/api/ytdl/:path*", "destination": "/api/ytdl" },
-    { "source": "/api/gelbooru/:path*", "destination": "/api/gelbooru" }
+    {
+      "source": "/",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/ytdl/:path*",
+      "destination": "/api/ytdl"
+    },
+    {
+      "source": "/api/gelbooru/:path*",
+      "destination": "/api/gelbooru"
+    },
+    {
+      "source": "/test",
+      "destination": "/api/test"
+    }
   ],
   "trailingSlash": false
 }
