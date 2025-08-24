@@ -1,6 +1,7 @@
 import os
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from io import StringIO
+from pathlib import Path
 from typing import Any, Iterable, MutableSet, cast
 
 import redis
@@ -19,8 +20,34 @@ MAX_RESPONE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
 CHUNK_SIZE = 512 * 1024
 
-BASEDIR = os.path.dirname(os.path.abspath(__file__))
+BASEDIR = Path(os.path.dirname(os.path.abspath(__file__)))
 PREFIX = "/api/ytdl"
+
+
+def load_env(max_depth: int | None = None, bi_dir: bool = False) -> dict[str, str]:
+    """Load environment variables from .env files.
+
+    :param max_depth: The maximum depth to search for .env files.
+    :param bi_dir: Whether to search in the inside directories.
+    """
+    # TODO: Implement bi_dir functionality
+    env = {}
+    current_dir = BASEDIR
+
+    while current_dir and (max_depth is None or max_depth > 0):
+        env.update(dotenv_values(current_dir / ".env"))
+        env.update(dotenv_values(current_dir / ".env.local"))
+        current_dir = current_dir.parent
+        if max_depth is not None:
+            max_depth -= 1
+
+        if current_dir == current_dir.parent:  # short-circuit on root dir
+            break
+
+        if env:  # load till env is not empty
+            break
+
+    return env
 
 
 class CookiesIOWrapper(StringIO):
@@ -42,18 +69,14 @@ class CookiesIOWrapper(StringIO):
         super().close()
 
 
-env_config = {
-    **dotenv_values(os.path.join(BASEDIR, *[os.path.pardir, ".env"])),
-    **dotenv_values(os.path.join(BASEDIR, *[os.path.pardir, ".env.local"])),
-    **os.environ,
-}
+env_config = {**load_env(max_depth=5), **os.environ}
 redis_client = redis.Redis.from_url(env_config.get("REDIS_URL", ""))
 cookies_io = CookiesIOWrapper(redis_client)
 
 app = Flask(
     __name__,
-    template_folder=os.path.join(BASEDIR, *[os.path.pardir, "templates"]),
-    static_folder=os.path.join(BASEDIR, *[os.path.pardir, "static"]),
+    template_folder=BASEDIR / "templates",
+    static_folder=BASEDIR / "static",
 )
 ytdlopts = {
     "color": "no_color",
