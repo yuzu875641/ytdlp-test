@@ -337,6 +337,7 @@ def check(
     if format.startswith("/"):
         format = format[1:]
 
+    print(env_config)
     info = extract_info(
         get_extractor(
             config={
