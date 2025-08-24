@@ -336,7 +336,8 @@ def check(
     if format.startswith("/"):
         format = format[1:]
 
-    print(os.environ)
+    print(cookies_io.getvalue())
+
     info = extract_info(
         get_extractor(
             config={
