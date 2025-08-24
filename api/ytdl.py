@@ -1,8 +1,11 @@
 import os
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from typing import Any, Iterable, MutableSet
+from io import StringIO
+from typing import Any, Iterable, MutableSet, cast
 
+import redis
 import requests
+from dotenv import dotenv_values
 from flask import (
     Flask,
     Response,
@@ -18,6 +21,34 @@ CHUNK_SIZE = 512 * 1024
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
 PREFIX = "/api/ytdl"
+
+
+class CookiesIOWrapper(StringIO):
+    def __init__(self, redis_client: redis.Redis):
+        self.redis_client = redis_client
+        cookies_result = cast(bytes | None, redis_client.get("cookies_io"))
+        if cookies_result:
+            super().__init__(cookies_result.decode("utf-8"))
+        else:
+            super().__init__()
+
+    def read(self, size: int | None = -1) -> str:
+        if size is None or size < 0:
+            self.seek(0)
+        return super().read(size)
+
+    def close(self):
+        self.redis_client.set("cookies_io", self.getvalue())
+        super().close()
+
+
+env_config = {
+    **dotenv_values(os.path.join(BASEDIR, *[os.path.pardir, ".env"])),
+    **dotenv_values(os.path.join(BASEDIR, *[os.path.pardir, ".env.local"])),
+    **os.environ,
+}
+redis_client = redis.Redis.from_url(env_config.get("REDIS_URL", ""))
+cookies_io = CookiesIOWrapper(redis_client)
 
 app = Flask(
     __name__,
@@ -41,6 +72,7 @@ ytdlopts = {
             "base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"
         }
     },
+    "cookiefile": cookies_io,
 }
 
 
@@ -95,7 +127,9 @@ class ClassList(MutableSet):
 
 
 def get_extractor(
-    config: dict | None = None, provider: str = "youtube", search_amount: int = 5
+    config: dict[str, Any] | None = None,
+    provider: str = "youtube",
+    search_amount: int = 5,
 ) -> YoutubeDL:
     if config is None:
         config = ytdlopts
@@ -115,6 +149,7 @@ def get_extractor(
         case _:
             config["default_search"] = f"ytsearch{search_amount}"
 
+    cookies_io.seek(0)
     return YoutubeDL(config)
 
 
@@ -257,6 +292,9 @@ def require_argument(arguments: Iterable[str]):
         return wrapper
 
     return decorator
+
+
+get_extractor().cookiejar
 
 
 @app.post(PREFIX + "/search")
