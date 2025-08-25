@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import time
 import uuid
 from io import StringIO
 from pathlib import Path
@@ -28,8 +27,8 @@ RANGE_CHUNK_SIZE = 1024 * 1024 * 3
 STREAM_CHUNK_SIZE = 512 * 1024
 MAX_DOWNLOAD_FILESIZE = "200M"
 API_PREFIX = "/api/ytdl"
-RESPONSE_CACHE_TTL_SECONDS = 7200  # 2 hours for the full yt-dlp response
-URL_CACHE_TTL_SECONDS = 1800  # 30 minutes for individual download URLs
+RESPONSE_CACHE_TTL_SECONDS = 7200
+URL_CACHE_TTL_SECONDS = 1800
 
 # --- Initialization & Configuration ---
 load_dotenv()
@@ -81,21 +80,6 @@ except UpstashError as e:
         f"Could not connect to Redis: {e}. Caching and cookie persistence will be disabled."
     )
     redis_client = None
-
-
-def debug_call_wrapper(func):
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        app.logger.info(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
-        result = func(*args, **kwargs)
-        elapsed = time.time() - start_time
-        app.logger.info(
-            f"{func.__name__} returned: {type(result)}, elapsed: {elapsed:.6f}s\nResult: {result}"
-        )
-        return result
-
-    wrapper.__name__ = func.__name__
-    return wrapper
 
 
 class CookiesIOWrapper(StringIO):
@@ -217,21 +201,15 @@ def log_request_info():
 
 
 @app.route(API_PREFIX + "/")
-@debug_call_wrapper
 def index():
     return render_template("index.jinja2")
 
 
 @app.route(API_PREFIX + "/check", methods=["POST"])
-@debug_call_wrapper
 def check():
     data = cast(dict | None, request.get_json(silent=True))
     if not data:
         return create_error_response("Invalid JSON payload.", 400)
-
-    request_type = data.get("type", "video")
-    has_ffmpeg = str_to_bool(data.get("has_ffmpeg", False))
-
     query = data.get("query")
     if not query:
         return create_error_response("Missing required argument: query", 400)
@@ -239,7 +217,9 @@ def check():
     cache_key = None
     if redis_client:
         try:
-            cache_key = f"ytdl:cache:{query}:{request_type}:{has_ffmpeg}"
+            cache_key = (
+                f"ytdl:cache:{query}:{data.get('type')}:{data.get('has_ffmpeg')}"
+            )
             cached_response = redis_client.get(cache_key)
             if cached_response and isinstance(cached_response, str):
                 app.logger.info(f"Cache HIT for key: {cache_key}")
@@ -252,8 +232,8 @@ def check():
 
     try:
         format_selector = _build_check_format_string(
-            req_type=request_type,
-            has_ffmpeg=has_ffmpeg,
+            req_type=data.get("type", "video"),
+            has_ffmpeg=str_to_bool(data.get("has_ffmpeg", False)),
             custom_format=data.get("format", ""),
         )
     except ValueError as e:
@@ -280,18 +260,16 @@ def check():
         ret_data["needFFmpeg"] = True
         req_formats = []
         for i in info.get("requested_formats", []):
-            # For each stream, create a UID, cache the URL, and add the UID to the response.
             uid = uuid.uuid4().hex[:12]
             if redis_client:
                 redis_client.set(f"ytdl:url:{uid}", i["url"], ex=URL_CACHE_TTL_SECONDS)
-
             req_formats.append(
                 {
                     "id": uid,
                     "ext": i["ext"],
                     "formatId": i.get("format_id", "0"),
                     "fileSizeApprox": i.get("filesize_approx", 0),
-                    "isPart": i.get("filesize_approx", 0) >= MAX_RESPONSE_SIZE,
+                    "isPart": True,  # Always true to force client-side chunking logic
                     "type": "audio" if i.get("audio_channels") else "video",
                 }
             )
@@ -302,19 +280,17 @@ def check():
             return create_error_response(
                 "No downloadable URL found for the selected format.", 404
             )
-        # For single files, create a UID, cache the URL, and add the UID to the response.
         uid = uuid.uuid4().hex[:12]
         if redis_client:
             redis_client.set(f"ytdl:url:{uid}", url, ex=URL_CACHE_TTL_SECONDS)
 
         ret_data["id"] = uid
-        if (filesize := info.get("filesize_approx", 0)) >= MAX_RESPONSE_SIZE:
-            ret_data["isPart"] = True
-            ret_data["fileSizeApprox"] = filesize
+        # ATTENTION: Always set isPart and fileSizeApprox to force ranged downloads on the client.
+        ret_data["isPart"] = True
+        ret_data["fileSizeApprox"] = info.get("filesize_approx", 0)
 
     if redis_client and cache_key:
         try:
-            # Store the main response object (containing UIDs) with a 2-hour TTL.
             redis_client.set(
                 cache_key, json.dumps(ret_data), ex=RESPONSE_CACHE_TTL_SECONDS
             )
@@ -326,13 +302,11 @@ def check():
 
 
 @app.route(API_PREFIX + "/download")
-@debug_call_wrapper
 def download():
     uid = request.args.get("id")
     if not uid:
         return create_error_response("Missing required argument: id", 400)
 
-    # The download URL is now retrieved from Redis using the UID.
     url = None
     if redis_client:
         try:
@@ -343,40 +317,16 @@ def download():
     if not url:
         return create_error_response(
             "Download link expired or invalid. Please try again.", 410
-        )  # 410 Gone
-
-    range_header = request.headers.get("Range")
-    if range_header:
-        app.logger.info(
-            f"Handling range request for id '{uid}' with range: {range_header}"
         )
-        return _range_download_handler(url, range_header)
 
-    app.logger.info(f"Handling full file request for id '{uid}'")
-    try:
-        r = requests.get(url, stream=True, timeout=10)
-        r.raise_for_status()
-        content_length = int(r.headers.get("Content-Length", 0))
-        if content_length >= MAX_RESPONSE_SIZE:
-            return create_error_response(
-                "File is too large for direct download. Client must use Range requests.",
-                400,
-            )
-
-        def generate():
-            for chunk in r.iter_content(chunk_size=STREAM_CHUNK_SIZE):
-                app.logger.info(f"Yielding chunk of size: {len(chunk)}")
-                yield chunk
-
-        return Response(
-            stream_with_context(generate()),
-            content_type=r.headers.get("Content-Type", "application/octet-stream"),
-        )
-    except requests.exceptions.RequestException as e:
-        return create_error_response(f"Failed to download content: {e}", 502, exc=e)
+    # ATTENTION: All downloads are now forced through the range handler.
+    range_header = request.headers.get(
+        "Range", "bytes=0-"
+    )  # Default to the first chunk if no header is present
+    app.logger.info(f"Handling range request for id '{uid}' with range: {range_header}")
+    return _range_download_handler(url, range_header)
 
 
-# --- Helper Functions ---
 def _build_check_format_string(
     req_type: str, has_ffmpeg: bool, custom_format: str
 ) -> str:
@@ -415,7 +365,6 @@ def _range_download_handler(url: str, range_header: str):
 
         def generate():
             for chunk in r.iter_content(chunk_size=STREAM_CHUNK_SIZE):
-                app.logger.info(f"Yielding chunk of size: {len(chunk)}")
                 yield chunk
 
         return Response(

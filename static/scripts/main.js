@@ -76,8 +76,6 @@ function sanitizeFilename(name) {
   return sanitized;
 }
 
-// --- Main Application Logic ---
-
 const YtdlApp = {
   config: {
     API_BASE: "/api/ytdl",
@@ -215,35 +213,35 @@ const YtdlApp = {
       await this.ffmpegDownload(data);
     } else {
       const sanitizedFilename = sanitizeFilename(`${data.title}.${data.ext}`);
-      Logger.info("Path selected: Direct or Chunked download.");
+      Logger.info("Path selected: Ranged download.");
       const blob = await this._fetchFile(data);
       saveAs(blob, sanitizedFilename);
     }
   },
 
   async _fetchFile(formatData) {
-    const { id, fileSizeApprox, isPart, type } = formatData;
+    const { id, fileSizeApprox, type } = formatData;
     Logger.log(
       `Fetching file for format type "${type || "N/A"}" using id: ${id}`,
       formatData
     );
-
     const downloadUrl = `${this.config.API_BASE}/download?id=${id}`;
 
-    if (!isPart) {
-      Logger.log("File is small, fetching as a single request.");
+    // Fallback for the rare case where file size is unknown.
+    if (!fileSizeApprox || fileSizeApprox <= 0) {
+      Logger.warn(
+        "fileSizeApprox is unknown. Attempting a single direct fetch."
+      );
       await this.updateDownloadText(`downloading ${type || ""}...`);
       const response = await fetch(downloadUrl);
       if (!response.ok)
         throw new Error(
           `Download failed: ${response.status} ${await response.text()}`
         );
-      const blob = await response.blob();
-      Logger.info(`Direct download complete. Blob size: ${blob.size}`);
-      return blob;
+      return response.blob();
     }
 
-    Logger.log("File is large, fetching in chunks.");
+    Logger.log("Fetching file using ranged requests.");
     const chunks = [];
     let downloadedBytes = 0;
     while (downloadedBytes < fileSizeApprox) {
@@ -252,6 +250,7 @@ const YtdlApp = {
         start + this.config.CHUNK_SIZE - 1,
         fileSizeApprox - 1
       );
+
       Logger.log(`Fetching chunk: bytes=${start}-${end}`);
       await this.updateDownloadText(
         `downloading ${type || ""}... ${humanFileSize(start)}/${humanFileSize(
@@ -259,6 +258,7 @@ const YtdlApp = {
         )}`,
         { animation: false }
       );
+
       const rangeResponse = await fetch(downloadUrl, {
         headers: { Range: `bytes=${start}-${end}` },
       });
@@ -266,6 +266,7 @@ const YtdlApp = {
         throw new Error(
           `Server error on range request: ${rangeResponse.status}`
         );
+
       const chunk = await rangeResponse.arrayBuffer();
       chunks.push(chunk);
       downloadedBytes += chunk.byteLength;
