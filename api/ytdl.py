@@ -31,10 +31,11 @@ load_dotenv(find_dotenv(".env.local"))
 def debug_call_wrapper(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()
+        print(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
         result = func(*args, **kwargs)
         elapsed = time.time() - start_time
         print(
-            f"Called {func.__name__} with args: {args}, kwargs: {kwargs}, returned: {type(result)}, elapsed: {elapsed:.6f}s\nResult: {result}"
+            f"{func.__name__} returned: {type(result)}, elapsed: {elapsed:.6f}s\nResult: {result}"
         )
         return result
 
