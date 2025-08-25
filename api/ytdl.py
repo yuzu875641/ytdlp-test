@@ -21,7 +21,7 @@ MAX_RESPONE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
 CHUNK_SIZE = 512 * 1024
 
-BASEDIR = Path(os.path.dirname(os.path.abspath(__file__)))
+BASEDIR = Path(os.path.dirname(os.path.abspath(__file__))).parent
 PREFIX = "/api/ytdl"
 
 load_dotenv()
@@ -78,7 +78,7 @@ ytdlopts = {
     "ignoreerrors": False,
     "logtostderr": False,
     "quiet": True,
-    "extract_flat": "in_playlist",
+    "noplaylist": True,
     "no_warnings": True,
     "source_address": "0.0.0.0",
     "extractor_args": {
