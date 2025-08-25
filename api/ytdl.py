@@ -6,7 +6,7 @@ from typing import Any, Iterable, MutableSet, cast
 
 import redis
 import requests
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 from flask import (
     Flask,
     Response,
@@ -24,7 +24,7 @@ BASEDIR = Path(os.path.dirname(os.path.abspath(__file__)))
 PREFIX = "/api/ytdl"
 
 load_dotenv()
-load_dotenv(".env.local")
+load_dotenv(find_dotenv(".env.local"))
 
 
 class CookiesIOWrapper(StringIO):
