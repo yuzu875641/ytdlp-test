@@ -1,11 +1,12 @@
 import os
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from io import StringIO
+from pathlib import Path
 from typing import Any, Iterable, MutableSet, cast
 
 import redis
 import requests
-from dotenv import dotenv_values
+from dotenv import find_dotenv, load_dotenv
 from flask import (
     Flask,
     Response,
@@ -19,8 +20,11 @@ MAX_RESPONE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
 CHUNK_SIZE = 512 * 1024
 
-BASEDIR = os.path.dirname(os.path.abspath(__file__))
+BASEDIR = Path(os.path.dirname(os.path.abspath(__file__))).parent
 PREFIX = "/api/ytdl"
+
+load_dotenv()
+load_dotenv(find_dotenv(".env.local"))
 
 
 class CookiesIOWrapper(StringIO):
@@ -42,18 +46,13 @@ class CookiesIOWrapper(StringIO):
         super().close()
 
 
-env_config = {
-    **dotenv_values(os.path.join(BASEDIR, *[os.path.pardir, ".env"])),
-    **dotenv_values(os.path.join(BASEDIR, *[os.path.pardir, ".env.local"])),
-    **os.environ,
-}
-redis_client = redis.Redis.from_url(env_config.get("REDIS_URL", ""))
+redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", ""))
 cookies_io = CookiesIOWrapper(redis_client)
 
 app = Flask(
     __name__,
-    template_folder=os.path.join(BASEDIR, *[os.path.pardir, "templates"]),
-    static_folder=os.path.join(BASEDIR, *[os.path.pardir, "static"]),
+    template_folder=BASEDIR / "templates",
+    static_folder=BASEDIR / "static",
 )
 ytdlopts = {
     "color": "no_color",
@@ -64,7 +63,7 @@ ytdlopts = {
     "ignoreerrors": False,
     "logtostderr": False,
     "quiet": True,
-    "extract_flat": "in_playlist",
+    "noplaylist": True,
     "no_warnings": True,
     "source_address": "0.0.0.0",
     "extractor_args": {
@@ -292,9 +291,6 @@ def require_argument(arguments: Iterable[str]):
         return wrapper
 
     return decorator
-
-
-get_extractor().cookiejar
 
 
 @app.post(PREFIX + "/search")
