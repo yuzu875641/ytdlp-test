@@ -1,5 +1,4 @@
 import os
-import time
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from io import StringIO
 from pathlib import Path
@@ -26,20 +25,6 @@ PREFIX = "/api/ytdl"
 
 load_dotenv()
 load_dotenv(find_dotenv(".env.local"))
-
-
-def debug_call_wrapper(func):
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        print(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
-        result = func(*args, **kwargs)
-        elapsed = time.time() - start_time
-        print(
-            f"{func.__name__} returned: {type(result)}, elapsed: {elapsed:.6f}s\nResult: {result}"
-        )
-        return result
-
-    return wrapper
 
 
 class CookiesIOWrapper(StringIO):
@@ -140,7 +125,6 @@ class ClassList(MutableSet):
         return 'class="%s"' % self if self else ""
 
 
-@debug_call_wrapper
 def get_extractor(
     config: dict[str, Any] | None = None,
     provider: str = "youtube",
@@ -215,7 +199,6 @@ def decode(msg: str) -> str:
     return urlsafe_b64decode(msg.encode("utf-8")).decode("utf-8")
 
 
-@debug_call_wrapper
 def extract_info(
     extractor: YoutubeDL,
     url: str | None = None,
