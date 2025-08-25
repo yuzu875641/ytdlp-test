@@ -1,145 +1,60 @@
+const Logger = {
+  verbose: true,
+  _log(level, ...args) {
+    if (["log", "info"].includes(level) && !this.verbose) return;
+    const timestamp = new Date().toLocaleTimeString();
+    const prefix = `[${timestamp}] [YTDL-APP]`;
+    console[level](prefix, ...args);
+  },
+  log(...args) {
+    this._log("log", ...args);
+  },
+  info(...args) {
+    this._log("info", ...args);
+  },
+  warn(...args) {
+    this._log("warn", ...args);
+  },
+  error(...args) {
+    this._log("error", ...args);
+  },
+};
+
 function humanFileSize(bytes, si = false, dp = 1) {
   const thresh = si ? 1000 : 1024;
-
-  if (Math.abs(bytes) < thresh) {
-    return bytes + ' B';
-  }
-
+  if (Math.abs(bytes) < thresh) return bytes + " B";
   const units = si
-    ? ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
-    : ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
+    ? ["kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"]
+    : ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"];
   let u = -1;
   const r = 10 ** dp;
-
   do {
     bytes /= thresh;
     ++u;
-  } while (Math.round(Math.abs(bytes) * r) / r >= thresh && u < units.length - 1);
-
-
-  return bytes.toFixed(dp) + ' ' + units[u];
+  } while (
+    Math.round(Math.abs(bytes) * r) / r >= thresh &&
+    u < units.length - 1
+  );
+  return bytes.toFixed(dp) + " " + units[u];
 }
 
 function isValidHttpUrl(urlString) {
   try {
     const url = new URL(urlString);
-    return url.protocol === 'http:' || url.protocol === 'https:';
+    return url.protocol === "http:" || url.protocol === "https:";
   } catch (_) {
     return false;
   }
 }
 
 function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function resetDownloadText(setOriginal = true) {
-  const downloadText = document.getElementById("download-button")
-  downloadText.classList.remove("red")
-  downloadText.classList.remove("no-opacity")
-  if (setOriginal) {
-    downloadText.innerHTML = "download"
-  }
-}
-
-async function animateDownloadText(afterText = "download", options = { animation: true, isError: false }) {
-  const downloadText = document.getElementById("download-button");
-  if (options.animation) {
-    downloadText.classList.add("no-opacity");
-    await sleep(200);
-  }
-  resetDownloadText(false);
-
-  if (options.isError) {
-    downloadText.classList.add("red");
-  }
-  downloadText.innerHTML = afterText;
-  downloadText.classList.remove("no-opacity");
-}
-
-async function animateErrorText(afterText) {
-  await animateDownloadText(afterText, { isError: true });
-}
-
-async function handleSubmit() {
-  const input = document.getElementById("url-input");
-  const url = input.value;
-  const downloadButton = document.getElementById("download-button");
-
-  if (downloadButton.classList.contains("disabled")) {
-    return;
-  }
-
-  downloadButton.classList.add("disabled");
-  try {
-    await submit(url);
-  } catch (error) {
-    animateErrorText(error.message);
-  } finally {
-    await sleep(2000);
-    animateDownloadText("download");
-    downloadButton.classList.remove("disabled");
-  }
-}
-
-async function submit(url) {
-  if (!isValidHttpUrl(url)) {
-    return
-  }
-  animateDownloadText("...")
-  const response = await fetch("/api/ytdl/check", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      query: url,
-      type: document.getElementsByClassName("av-wrapper")[0].getAttribute("data-value"),
-      has_ffmpeg: window.WP_ffmpeg !== undefined && window.WP_ffmpeg.loaded
-    }),
-  });
-
-  if (!response.ok) {
-    const errorJson = await response.json();
-    window.WP_notifier.warning(errorJson.error);
-    return;
-  }
-
-  animateDownloadText("downloading...");
-  return await response.json()
-    .then(async (data) => {
-      if (data.needFFmpeg == true) {
-        if (!window.WP_ffmpeg.loaded) {
-          return "ffmpeg not loaded";
-        }
-        const params = {
-          filename: data.title,
-        };
-
-        for (const format of data.requestedFormats) {
-          const fileData = format.isPart ? await downloadParts(format) : await window.WP_fetchFile(`/api/ytdl/download?video_id=${format.videoId}`);
-          params[`${format.type}Data`] = fileData;
-          params[`${format.type}Ext`] = format.ext;
-          params[`${format.type}Title`] = format.formatId;
-        }
-        await ffmpegDownload(params);
-        return;
-      }
-
-      if (data.isPart == true) {
-        return await downloadParts(data)
-          .then((blob) => {
-            saveAs(blob, data.title + "." + data.ext);
-          })
-          .catch(() => {
-            return "I/O error";
-          });
-      }
-      download(data);
-    })
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function saveAs(blob, filename) {
+  Logger.info(
+    `Triggering download for blob of size ${blob.size} as "${filename}"`
+  );
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.style.display = "none";
@@ -150,131 +65,315 @@ function saveAs(blob, filename) {
   setTimeout(() => {
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
+    Logger.log("Cleaned up blob URL.");
   }, 100);
 }
 
-async function parts(bufferList, url, videoId, fileSizeApprox, rangeStart) {
-  const postResp = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      video_id: videoId,
-      range_start: rangeStart,
-      filesize_approx: fileSizeApprox
-    }),
-  })
-
-  const postData = await postResp.json()
-  if (postData.status == "finished") {
-    return
-  }
-
-  const getResp = await fetch(postData.url)
-  if (getResp.status == 416) {
-    return
-  }
-
-  const contentLength = getResp.headers.get("Content-Length")
-  const newRangeStart = Number(rangeStart) + Number(contentLength)
-
-  animateDownloadText(`downloading... ${humanFileSize(newRangeStart)}/${humanFileSize(fileSizeApprox)}`, { animation: false })
-
-  arrayBuffer = await getResp.arrayBuffer()
-  bufferList.push(arrayBuffer)
-  await parts(bufferList, url, videoId, fileSizeApprox, newRangeStart)
+function sanitizeFilename(name) {
+  const sanitized = name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+  if (sanitized !== name)
+    Logger.log(`Sanitized filename from "${name}" to "${sanitized}"`);
+  return sanitized;
 }
 
-async function ffmpegDownload({ videoData, videoTitle, videoExt, audioData, audioTitle, audioExt, filename }) {
-  const videoName = `${videoTitle}.${videoExt}`;
-  const audioName = `${audioTitle}.${audioExt}`;
-  const outputName = `${filename}.${videoExt}`;
+// --- Main Application Logic ---
 
-  videoData = new Uint8Array(await (videoData instanceof Blob ? videoData.arrayBuffer() : Promise.resolve(videoData)));
-  audioData = new Uint8Array(await (audioData instanceof Blob ? audioData.arrayBuffer() : Promise.resolve(audioData)));
+const YtdlApp = {
+  config: {
+    API_BASE: "/api/ytdl",
+    CHUNK_SIZE: 1024 * 1024 * 3,
+    verbose: true,
+  },
+  ui: {
+    urlInput: null,
+    downloadButton: null,
+    avWrapper: null,
+    videoSwitch: null,
+    audioSwitch: null,
+  },
+  state: { isDownloading: false },
 
-  const ffmpeg = window.WP_ffmpeg;
-  if (ffmpeg === undefined || !ffmpeg.loaded) {
-    return Promise.reject(new Error("ffmpeg not loaded"));
-  }
+  init() {
+    Logger.verbose = this.config.verbose;
+    Logger.info("Application initializing...");
+    Object.assign(this.ui, {
+      urlInput: document.getElementById("url-input"),
+      downloadButton: document.getElementById("download-button"),
+      avWrapper: document.getElementsByClassName("av-wrapper")[0],
+      videoSwitch: document.getElementById("video-switch"),
+      audioSwitch: document.getElementById("audio-switch"),
+    });
 
-  await Promise.all([
-    ffmpeg.writeFile(videoName, videoData),
-    ffmpeg.writeFile(audioName, audioData),
-  ]);
+    this.ui.downloadButton.addEventListener("click", () => this.handleSubmit());
+    this.ui.urlInput.addEventListener("input", () => this.checkInput());
+    this.ui.videoSwitch.addEventListener("click", () =>
+      this.setDownloadType("video")
+    );
+    this.ui.audioSwitch.addEventListener("click", () =>
+      this.setDownloadType("audio")
+    );
 
-  await ffmpeg.exec([
-    "-i",
-    videoName,
-    "-i",
-    audioName,
-    "-c:v",
-    "copy",
-    "-c:a",
-    "copy",
-    outputName,
-  ]);
+    document
+      .getElementById("open-settings-modal")
+      .addEventListener("click", () => this.toggleModal("settings-modal"));
+    document
+      .getElementById("open-about-modal")
+      .addEventListener("click", () => this.toggleModal("about-modal"));
+    document
+      .getElementById("open-donate-modal")
+      .addEventListener("click", () => this.toggleModal("about-modal"));
 
-  const data = await ffmpeg.readFile(outputName);
-  const blob = new Blob([data], { type: `video/${videoExt}` });
-  saveAs(blob, outputName);
+    document.querySelectorAll(".js-modal-close").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        const modal = event.target.closest(".modal");
+        if (modal) this.toggleModal(modal.id);
+      });
+    });
+    Logger.info("Initialization complete.");
+  },
 
-  animateDownloadText("download")
-  await Promise.all([
-    ffmpeg.deleteFile(videoName),
-    ffmpeg.deleteFile(audioName),
-    ffmpeg.deleteFile(outputName),
-  ]);
-}
+  async updateDownloadText(
+    text,
+    options = { animation: true, isError: false }
+  ) {
+    Logger.log(`Updating download text to: "${text}"`, options);
+    const { animation, isError } = options;
+    if (animation) {
+      this.ui.downloadButton.classList.add("no-opacity");
+      await sleep(200);
+    }
+    this.ui.downloadButton.classList.remove("red", "no-opacity");
+    if (isError) this.ui.downloadButton.classList.add("red");
+    this.ui.downloadButton.innerHTML = text;
+  },
 
-async function downloadParts(data) {
-  const { url = "/api/ytdl/part-download", videoId, fileSizeApprox } = data;
-  const bufferList = [];
+  toggleModal(modalId) {
+    Logger.log(`Toggling modal: ${modalId}`);
+    const modal = document.getElementById(modalId);
+    if (modal) {
+      modal.classList.toggle("hidden");
+      modal.classList.toggle("visible");
+    } else {
+      Logger.warn(`Modal with ID "${modalId}" not found.`);
+    }
+  },
 
-  await parts(bufferList, url, videoId, fileSizeApprox, 0);
+  async handleSubmit() {
+    if (this.state.isDownloading) {
+      Logger.warn("Download already in progress. handleSubmit aborted.");
+      return;
+    }
+    Logger.info("handleSubmit triggered.");
+    this.state.isDownloading = true;
+    this.ui.downloadButton.classList.add("disabled");
+    try {
+      await this.processUrl(this.ui.urlInput.value);
+      Logger.info("Processing finished successfully.");
+    } catch (error) {
+      Logger.error("An unexpected error occurred in handleSubmit:", error);
+      this.updateDownloadText(error.message || "Client error", {
+        isError: true,
+        animation: true,
+      });
+    } finally {
+      await sleep(2000);
+      this.updateDownloadText("download", { animation: true });
+      this.state.isDownloading = false;
+      this.checkInput();
+      Logger.info("handleSubmit finished, UI reset.");
+    }
+  },
 
-  return new Blob(bufferList, { type: "application/octet-stream" });
-}
+  async processUrl(url) {
+    if (!isValidHttpUrl(url)) throw new Error("Invalid URL");
+    Logger.log(`Starting to process URL: ${url}`);
+    await this.updateDownloadText("checking...");
+    const checkPayload = {
+      query: url,
+      type: this.ui.avWrapper.getAttribute("data-value"),
+      has_ffmpeg: window.WP_ffmpeg?.loaded,
+    };
+    Logger.log(
+      "Sending request to /check endpoint with payload:",
+      checkPayload
+    );
+    const response = await fetch(`${this.config.API_BASE}/check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(checkPayload),
+    });
+    const data = await response.json();
+    Logger.info("Received response from /check:", data);
+    if (!response.ok) {
+      window.WP_notifier.warning(data.error);
+      throw new Error(data.error);
+    }
 
-function download(data) {
-  const a = document.createElement("a");
-  a.href = `/api/ytdl/download?video_id=${data.videoId}`;
-  a.download = data.title + "." + data.ext;
-  a.click();
-}
+    if (data.needFFmpeg) {
+      Logger.info("Path selected: FFmpeg remuxing.");
+      if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
+      await this.ffmpegDownload(data);
+    } else {
+      const sanitizedFilename = sanitizeFilename(`${data.title}.${data.ext}`);
+      Logger.info("Path selected: Direct or Chunked download.");
+      const blob = await this._fetchFile(data);
+      saveAs(blob, sanitizedFilename);
+    }
+  },
 
-function checkInput(inputElement) {
-  const input = inputElement.value;
-  const downloadButton = document.getElementById("download-button");
+  async _fetchFile(formatData) {
+    const { id, fileSizeApprox, isPart, type } = formatData;
+    Logger.log(
+      `Fetching file for format type "${type || "N/A"}" using id: ${id}`,
+      formatData
+    );
 
-  if (input === "") {
-    downloadButton.classList.remove("disabled");
-    resetDownloadText();
-    return;
-  }
+    const downloadUrl = `${this.config.API_BASE}/download?id=${id}`;
 
-  if (isValidHttpUrl(input)) {
-    downloadButton.classList.remove("disabled");
-  } else {
-    downloadButton.classList.add("disabled");
-  }
-}
+    if (!isPart) {
+      Logger.log("File is small, fetching as a single request.");
+      await this.updateDownloadText(`downloading ${type || ""}...`);
+      const response = await fetch(downloadUrl);
+      if (!response.ok)
+        throw new Error(
+          `Download failed: ${response.status} ${await response.text()}`
+        );
+      const blob = await response.blob();
+      Logger.info(`Direct download complete. Blob size: ${blob.size}`);
+      return blob;
+    }
 
-function videoSwitch() {
-  document.getElementsByClassName("av-wrapper")[0].setAttribute("data-value", "video")
-  document.getElementById("video-switch").classList.add("selected")
-  document.getElementById("audio-switch").classList.remove("selected")
-}
+    Logger.log("File is large, fetching in chunks.");
+    const chunks = [];
+    let downloadedBytes = 0;
+    while (downloadedBytes < fileSizeApprox) {
+      const start = downloadedBytes;
+      const end = Math.min(
+        start + this.config.CHUNK_SIZE - 1,
+        fileSizeApprox - 1
+      );
+      Logger.log(`Fetching chunk: bytes=${start}-${end}`);
+      await this.updateDownloadText(
+        `downloading ${type || ""}... ${humanFileSize(start)}/${humanFileSize(
+          fileSizeApprox
+        )}`,
+        { animation: false }
+      );
+      const rangeResponse = await fetch(downloadUrl, {
+        headers: { Range: `bytes=${start}-${end}` },
+      });
+      if (rangeResponse.status !== 206)
+        throw new Error(
+          `Server error on range request: ${rangeResponse.status}`
+        );
+      const chunk = await rangeResponse.arrayBuffer();
+      chunks.push(chunk);
+      downloadedBytes += chunk.byteLength;
+      Logger.log(
+        `Chunk received. Size: ${chunk.byteLength}. Total downloaded: ${downloadedBytes}`
+      );
+    }
+    const blob = new Blob(chunks, { type: "application/octet-stream" });
+    Logger.info(`All chunks received. Final blob size: ${blob.size}`);
+    return blob;
+  },
 
-function audioSwitch() {
-  document.getElementsByClassName("av-wrapper")[0].setAttribute("data-value", "audio")
-  document.getElementById("audio-switch").classList.add("selected")
-  document.getElementById("video-switch").classList.remove("selected")
-}
+  async ffmpegDownload(data) {
+    Logger.info("Starting FFmpeg download process.");
+    const ffmpeg = window.WP_ffmpeg;
+    const filesToDelete = [];
+    const remuxParams = {};
 
-function toggleModal(name) {
-  const modal = document.getElementById(`${name}-modal`)
-  modal.classList.toggle("hidden")
-  modal.classList.toggle("visible")
-}
+    try {
+      Logger.info(
+        `Starting concurrent download of ${data.requestedFormats.length} streams.`
+      );
+      await this.updateDownloadText(`downloading streams...`);
+
+      const downloadPromises = data.requestedFormats.map(async (format) => {
+        Logger.log(`[Concurrent] Preparing to download format: ${format.type}`);
+        const fileBlob = await this._fetchFile(format);
+        const fileBuffer = await fileBlob.arrayBuffer();
+
+        const safeInputName = sanitizeFilename(
+          `${format.formatId}.${format.ext}`
+        );
+        filesToDelete.push(safeInputName);
+        Logger.log(
+          `[Concurrent] Writing ${format.type} data to virtual FS as "${safeInputName}"`
+        );
+        await ffmpeg.writeFile(safeInputName, new Uint8Array(fileBuffer));
+        remuxParams[`${format.type}Name`] = safeInputName;
+        Logger.log(
+          `[Concurrent] Finished writing "${safeInputName}" to virtual FS.`
+        );
+      });
+
+      await Promise.all(downloadPromises);
+      Logger.info(
+        "All streams have been downloaded and written to the virtual FS."
+      );
+
+      await this.updateDownloadText("merging...");
+      const safeOutputName = sanitizeFilename(`${data.title}.${data.ext}`);
+      filesToDelete.push(safeOutputName);
+
+      const execParams = [
+        "-i",
+        remuxParams.videoName,
+        "-i",
+        remuxParams.audioName,
+        "-c:v",
+        "copy",
+        "-c:a",
+        "copy",
+        safeOutputName,
+      ];
+      Logger.info(
+        "Executing FFmpeg command:",
+        `ffmpeg ${execParams.join(" ")}`
+      );
+      await ffmpeg.exec(execParams);
+      Logger.info("FFmpeg execution complete.");
+
+      const mergedData = await ffmpeg.readFile(safeOutputName);
+      Logger.log(
+        `Reading merged file from virtual FS. Size: ${mergedData.length}`
+      );
+      const blob = new Blob([mergedData], { type: `video/${data.ext}` });
+      saveAs(blob, safeOutputName);
+    } finally {
+      await this.updateDownloadText(`cleaning up...`);
+      Logger.log("Cleaning up FFmpeg virtual files:", filesToDelete);
+      for (const file of filesToDelete) {
+        try {
+          await ffmpeg.deleteFile(file);
+          Logger.log(`Deleted temp file: ${file}`);
+        } catch (e) {
+          Logger.warn(`Could not delete temp file: ${file}`, e);
+        }
+      }
+    }
+  },
+
+  checkInput() {
+    const isValid = isValidHttpUrl(this.ui.urlInput.value);
+    if (isValid && !this.state.isDownloading)
+      this.ui.downloadButton.classList.remove("disabled");
+    else this.ui.downloadButton.classList.add("disabled");
+  },
+
+  setDownloadType(type) {
+    Logger.log(`Setting download type to: ${type}`);
+    this.ui.avWrapper.setAttribute("data-value", type);
+    if (type === "video") {
+      this.ui.videoSwitch.classList.add("selected");
+      this.ui.audioSwitch.classList.remove("selected");
+    } else {
+      this.ui.audioSwitch.classList.add("selected");
+      this.ui.videoSwitch.classList.remove("selected");
+    }
+  },
+};
+
+document.addEventListener("DOMContentLoaded", () => YtdlApp.init());

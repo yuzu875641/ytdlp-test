@@ -1,7 +1,7 @@
 import os
 from typing import Iterable, MutableSet
-from flask import Flask, render_template
 
+from flask import Flask, render_template
 
 PREFIX = "/"
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
@@ -63,7 +63,7 @@ class ClassList(MutableSet):
 
 @app.route(PREFIX)
 def index():
-    return render_template("index.html")
+    return render_template("index.jinja2")
 
 
 if __name__ == "__main__":
