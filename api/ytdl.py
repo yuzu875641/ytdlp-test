@@ -1,62 +1,55 @@
+import json
+import logging
 import os
-from base64 import urlsafe_b64decode, urlsafe_b64encode
+import uuid
 from io import StringIO
 from pathlib import Path
 from typing import Any, Iterable, MutableSet, cast
 
-import redis
 import requests
 from dotenv import find_dotenv, load_dotenv
 from flask import (
     Flask,
     Response,
+    jsonify,
     render_template,
     request,
     stream_with_context,
 )
-from yt_dlp import DownloadError, YoutubeDL
+from upstash_redis import Redis
+from upstash_redis.errors import UpstashError
+from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
-MAX_RESPONE_SIZE = 1024 * 1024 * 4
+# --- Constants ---
+MAX_RESPONSE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
-CHUNK_SIZE = 512 * 1024
+STREAM_CHUNK_SIZE = 512 * 1024
+MAX_DOWNLOAD_FILESIZE = "200M"
+API_PREFIX = "/api/ytdl"
+RESPONSE_CACHE_TTL_SECONDS = 7200
+URL_CACHE_TTL_SECONDS = 1800
 
-BASEDIR = Path(os.path.dirname(os.path.abspath(__file__))).parent
-PREFIX = "/api/ytdl"
-
+# --- Initialization & Configuration ---
 load_dotenv()
 load_dotenv(find_dotenv(".env.local"))
 
-
-class CookiesIOWrapper(StringIO):
-    def __init__(self, redis_client: redis.Redis):
-        self.redis_client = redis_client
-        cookies_result = cast(bytes | None, redis_client.get("cookies_io"))
-        if cookies_result:
-            super().__init__(cookies_result.decode("utf-8"))
-        else:
-            super().__init__()
-
-    def read(self, size: int | None = -1) -> str:
-        if size is None or size < 0:
-            self.seek(0)
-        return super().read(size)
-
-    def close(self):
-        self.redis_client.set("cookies_io", self.getvalue())
-        super().close()
-
-
-redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", ""))
-cookies_io = CookiesIOWrapper(redis_client)
-
 app = Flask(
     __name__,
-    template_folder=BASEDIR / "templates",
-    static_folder=BASEDIR / "static",
+    template_folder=Path(__file__).parent.parent / "templates",
+    static_folder=Path(__file__).parent.parent / "static",
 )
-ytdlopts = {
+
+formatter = logging.Formatter(
+    "[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s"
+)
+app.logger.handlers[0].setFormatter(formatter)
+app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
+
+app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
+app.config["KV_REST_API_TOKEN"] = os.getenv("KV_REST_API_TOKEN", "")
+app.config["YTDL_OPTS"] = {
     "color": "no_color",
-    "format": "(bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best)[protocol^=http][protocol!*=dash]",
     "outtmpl": r"downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s",
     "restrictfilenames": True,
     "nocheckcertificate": True,
@@ -71,29 +64,68 @@ ytdlopts = {
             "base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"
         }
     },
-    "cookiefile": cookies_io,
 }
 
+# --- Redis & Cookie IO Setup ---
+try:
+    redis_client = Redis(
+        url=app.config["KV_REST_API_URL"],
+        token=app.config["KV_REST_API_TOKEN"],
+        allow_telemetry=False,
+    )
+    redis_client.ping()
+    app.logger.info("Successfully connected to Redis.")
+except UpstashError as e:
+    app.logger.critical(
+        f"Could not connect to Redis: {e}. Caching and cookie persistence will be disabled."
+    )
+    redis_client = None
 
+
+class CookiesIOWrapper(StringIO):
+    def __init__(self, redis_client: Redis | None, key: str = "ytdl_cookies"):
+        self.redis_client = redis_client
+        self.key = key
+        initial_value = ""
+        if self.redis_client:
+            try:
+                cookies_result = cast(str | None, self.redis_client.get(self.key))
+                if cookies_result:
+                    initial_value = cookies_result
+                    app.logger.info("Successfully loaded cookies from Redis.")
+            except UpstashError as e:
+                app.logger.error(
+                    f"Redis GET error: {e}. Proceeding without persistent cookies."
+                )
+        super().__init__(initial_value)
+
+    def close(self):
+        if self.redis_client:
+            try:
+                self.redis_client.set(self.key, self.getvalue())
+                app.logger.info("Successfully saved cookies to Redis.")
+            except UpstashError as e:
+                app.logger.error(
+                    f"Redis SET error: {e}. Cookies may not have been saved."
+                )
+        super().close()
+
+
+cookies_io = CookiesIOWrapper(redis_client)
+app.config["YTDL_OPTS"]["cookiefile"] = cookies_io
+
+
+# --- Template Globals & Utils ---
 @app.template_global("classlist")
 class ClassList(MutableSet):
-    """Data structure for holding, and ultimately returning as a single string,
-    a set of identifiers that should be managed like CSS classes.
-    """
-
     def __init__(self, arg: str | Iterable | None = None, *args: str):
-        """Constructor.
-
-        :param arg: A single class name or an iterable thereof.
-        """
         classes: Iterable[str] = []
         if isinstance(arg, str):
             classes = arg.split()
         elif isinstance(arg, Iterable):
             classes = arg
         elif arg is not None:
-            raise TypeError("expected a string or string iterable, got %r" % type(arg))
-
+            raise TypeError("expected a string or string iterable")
         self.classes = set(filter(None, classes))
         if args:
             self.classes.update(args)
@@ -115,7 +147,6 @@ class ClassList(MutableSet):
     def discard(self, *classes):  # type: ignore
         for class_ in classes:
             self.classes.discard(class_)
-
         return ""
 
     def __str__(self):
@@ -125,361 +156,224 @@ class ClassList(MutableSet):
         return 'class="%s"' % self if self else ""
 
 
-def get_extractor(
-    config: dict[str, Any] | None = None,
-    provider: str = "youtube",
-    search_amount: int = 5,
+def str_to_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in ("yes", "true", "t", "y", "1")
+
+
+def create_ytdl_extractor(
+    provider: str = "youtube", search_amount: int = 5, extra_opts: dict | None = None
 ) -> YoutubeDL:
-    if config is None:
-        config = ytdlopts
-    else:
-        config = {**ytdlopts, **config}
-
-    match provider:
-        case "soundcloud":
-            config["default_search"] = f"scsearch{search_amount}"
-        case "ytmusic":
-            config.update(
-                {
-                    "default_search": "https://music.youtube.com/search?q=",
-                    "playlist_items": f"1-{search_amount}",
-                }
-            )
-        case _:
-            config["default_search"] = f"ytsearch{search_amount}"
-
+    base_opts = app.config["YTDL_OPTS"].copy()
+    config = {**base_opts, **(extra_opts or {})}
+    search_prefixes = {
+        "soundcloud": f"scsearch{search_amount}",
+        "ytmusic": "https://music.youtube.com/search?q=",
+    }
+    config["default_search"] = search_prefixes.get(provider, f"ytsearch{search_amount}")
+    if provider == "ytmusic":
+        config["playlist_items"] = f"1-{search_amount}"
     cookies_io.seek(0)
     return YoutubeDL(config)
 
 
-def str_to_bool(value: str | bool | None) -> bool:
-    if value is None:
-        return False
+def create_error_response(
+    message: str, code: int = 500, exc: Exception | None = None
+) -> tuple[Response, int]:
+    if exc:
+        app.logger.error(f"Exception caught: {message}", exc_info=exc)
+    else:
+        app.logger.warning(f"Returning error to client: {message} (Code: {code})")
+    if "No such format" in message or "Unsupported URL" in message:
+        code = 404
+    elif "Missing argument" in message or "Invalid" in message:
+        code = 400
+    return jsonify({"success": False, "error": message}), code
 
-    if isinstance(value, bool):
-        return value
 
-    return value.lower() in ("yes", "true", "t", "y", "1")
+# --- Request Hooks & Routes ---
+@app.before_request
+def log_request_info():
+    app.logger.info(f"Request: {request.method} {request.path}")
+    if request.is_json and request.method == "POST":
+        app.logger.info(f"Request JSON payload: {request.get_json()}")
 
 
-@app.route(PREFIX)
+@app.route(API_PREFIX + "/")
 def index():
-    return render_template("index.html")
+    return render_template("index.jinja2")
 
 
-# @app.route(PREFIX + "/login", methods=["GET", "POST"])
-# def login():
-#     if not login_users:
-#         return "No users available", 401
+@app.route(API_PREFIX + "/check", methods=["POST"])
+def check():
+    data = cast(dict | None, request.get_json(silent=True))
+    if not data:
+        return create_error_response("Invalid JSON payload.", 400)
+    query = data.get("query")
+    if not query:
+        return create_error_response("Missing required argument: query", 400)
 
-#     username = (
-#         request.args.get("username")
-#         if request.method == "GET"
-#         else request.form.get("username")
-#     )
-#     password = (
-#         request.args.get("password")
-#         if request.method == "GET"
-#         else request.form.get("password")
-#     )
-
-#     if username in users and users[username] == password:
-#         token = str(uuid4())
-#         login_users[token] = username
-#         return token
-
-#     return "", 401
-
-
-def encode(msg: str) -> str:
-    return urlsafe_b64encode(msg.encode("utf-8")).decode("utf-8")
-
-
-def decode(msg: str) -> str:
-    return urlsafe_b64decode(msg.encode("utf-8")).decode("utf-8")
-
-
-def extract_info(
-    extractor: YoutubeDL,
-    url: str | None = None,
-    video_id: str | None = None,
-    process: bool | str | None = True,
-):
-    """Extracts video information from url or video_id using the provided extractor.
-
-    Args:
-        extractor: YoutubeDL instance used to extract the info.
-        url: The url of the video.
-        video_id: The video id.
-        process: Whether to process the video info.
-        return_dict: Whether to return the info as a dictionary.
-
-    Returns:
-        The video information as a dictionary or a Response object with an error message.
-    """
-
-    process = str_to_bool(process)
-
-    if not url and not video_id:
-        return error_response("No url or video_id provided")
-
-    if video_id:
-        url = f"https://www.youtube.com/watch?v={video_id}"
+    cache_key = None
+    if redis_client:
+        try:
+            cache_key = (
+                f"ytdl:cache:{query}:{data.get('type')}:{data.get('has_ffmpeg')}"
+            )
+            cached_response = redis_client.get(cache_key)
+            if cached_response and isinstance(cached_response, str):
+                app.logger.info(f"Cache HIT for key: {cache_key}")
+                return jsonify(json.loads(cached_response))
+            app.logger.info(f"Cache MISS for key: {cache_key}")
+        except UpstashError as e:
+            app.logger.error(
+                f"Redis cache check failed: {e}. Proceeding without cache."
+            )
 
     try:
-        info = extractor.extract_info(url, download=False, process=process)
-    except (DownloadError, Exception) as e:
-        return error_response(str(e))
-
-    if info is None:
-        return error_response("Failed to extract info")
-
-    info["is_search"] = "search" in info.get("extractor", "")
-    info["success"] = True
-
-    return info
-
-
-def error_response(message: str):
-    return {
-        "error": message,
-        "success": False,
-        "code": 400 if "No" in message else 500,
-    }
-
-
-def check_arguments(arguments: Iterable[str]):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            if request.method == "GET":
-                json_data = request.args
-            else:
-                json_data = request.get_json(force=True, silent=True, cache=True)
-                if not json_data:
-                    return "Malformed JSON", 400
-
-            for argument in arguments:
-                if argument not in json_data:
-                    continue
-                kwargs[argument] = json_data[argument]
-
-            return func(*args, **kwargs)
-
-        wrapper.__name__ = func.__name__
-        return wrapper
-
-    return decorator
-
-
-def require_argument(arguments: Iterable[str]):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            if request.method == "GET":
-                json_data = request.args
-            else:
-                json_data = request.get_json(force=True, silent=True, cache=True)
-                if not json_data:
-                    return "Malformed JSON", 400
-
-            for argument in arguments:
-                if argument not in json_data:
-                    return "Missing argument", 400
-                kwargs[argument] = json_data[argument]
-            return func(*args, **kwargs)
-
-        wrapper.__name__ = func.__name__
-        return wrapper
-
-    return decorator
-
-
-@app.post(PREFIX + "/search")
-@require_argument(["query"])
-@check_arguments(["process", "provider", "search_amount"])
-def search(
-    query: str, process: bool = True, provider: str = "youtube", search_amount: int = 5
-):
-    return extract_info(
-        get_extractor(provider=provider, search_amount=search_amount),
-        url=query,
-        process=process,
-    )
-
-
-@app.post(PREFIX + "/extract")
-@require_argument(["url"])
-def extract(url: str):
-    return extract_info(get_extractor(), url=url)
-
-
-@app.post(PREFIX + "/check")
-@require_argument(["query"])
-@check_arguments(["type", "has_ffmpeg", "format"])
-def check(
-    query: str, type: str = "video", has_ffmpeg: bool = False, format: str = ""
-) -> tuple[dict[str, Any], int]:
-    # format_sel = ytdlopts["format"]
-    if type == "video":
-        format += (
-            "/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]/b"
-            if has_ffmpeg
-            else "best*[vcodec!=none][acodec!=none][height<=1080]"
+        format_selector = _build_check_format_string(
+            req_type=data.get("type", "video"),
+            has_ffmpeg=str_to_bool(data.get("has_ffmpeg", False)),
+            custom_format=data.get("format", ""),
         )
-    elif type == "audio":
-        format += "/bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio"
-    else:
-        return {"error": "Invalid type"}, 400
+    except ValueError as e:
+        return create_error_response(str(e), 400, exc=e)
 
-    if format.startswith("/"):
-        format = format[1:]
-
-    info = extract_info(
-        get_extractor(
-            config={
-                "noplaylist": True,
-                "format": f"({format}/best)[protocol^=http][protocol!*=dash][filesize<=200M]",
-            }
-        ),
-        url=query,
+    extractor = create_ytdl_extractor(
+        extra_opts={"noplaylist": True, "format": format_selector}
     )
-
-    if not info.pop("success", False):
-        return {"error": info.get("error", "Unknown error")}, info.get("code", 500)
+    try:
+        info = extractor.extract_info(query, download=False, process=True)
+        if not info:
+            return create_error_response(
+                "yt-dlp failed to extract info (returned None).", 500
+            )
+    except DownloadError as e:
+        return create_error_response(f"Extraction failed: {e}", 500, exc=e)
 
     ret_data = {
         "title": info.get("title", info.get("id", "")),
         "ext": info.get("ext", "bin"),
     }
-    if has_ffmpeg and "requested_formats" in info:
+
+    if str_to_bool(data.get("has_ffmpeg", False)) and "requested_formats" in info:
         ret_data["needFFmpeg"] = True
-        ret_data["requestedFormats"] = [
-            {
-                "videoId": encode(i["url"]),
-                "ext": i["ext"],
-                "formatId": i.get("format_id", "0"),
-                "fileSizeApprox": i.get("filesize_approx", 0),
-                "isPart": i.get("filesize_approx", 0) >= MAX_RESPONE_SIZE,
-                "type": "audio"
-                if i.get("audio_channels") and i["audio_channels"] > 0
-                else "video",
-            }
-            for i in info.get("requested_formats", [])
-        ]
-        return ret_data, 200
+        req_formats = []
+        for i in info.get("requested_formats", []):
+            uid = uuid.uuid4().hex[:12]
+            if redis_client:
+                redis_client.set(f"ytdl:url:{uid}", i["url"], ex=URL_CACHE_TTL_SECONDS)
+            req_formats.append(
+                {
+                    "id": uid,
+                    "ext": i["ext"],
+                    "formatId": i.get("format_id", "0"),
+                    "fileSizeApprox": i.get("filesize_approx", 0),
+                    "isPart": True,  # Always true to force client-side chunking logic
+                    "type": "audio" if i.get("audio_channels") else "video",
+                }
+            )
+        ret_data["requestedFormats"] = req_formats
+    else:
+        url = info.get("url")
+        if not url:
+            return create_error_response(
+                "No downloadable URL found for the selected format.", 404
+            )
+        uid = uuid.uuid4().hex[:12]
+        if redis_client:
+            redis_client.set(f"ytdl:url:{uid}", url, ex=URL_CACHE_TTL_SECONDS)
 
-    url = info.get("url")
-    if not url:
-        return {"error": "No url found"}, 404
-
-    ret_data["videoId"] = encode(url)
-    if (
-        filesize_approx := info.get("filesize_approx", MAX_RESPONE_SIZE)
-    ) >= MAX_RESPONE_SIZE:
+        ret_data["id"] = uid
+        # ATTENTION: Always set isPart and fileSizeApprox to force ranged downloads on the client.
         ret_data["isPart"] = True
-        ret_data["url"] = "/api/ytdl/part-download"
-        ret_data["fileSizeApprox"] = filesize_approx
+        ret_data["fileSizeApprox"] = info.get("filesize_approx", 0)
 
-    return ret_data, 200
+    if redis_client and cache_key:
+        try:
+            redis_client.set(
+                cache_key, json.dumps(ret_data), ex=RESPONSE_CACHE_TTL_SECONDS
+            )
+            app.logger.info(f"Successfully cached response for key: {cache_key}")
+        except UpstashError as e:
+            app.logger.error(f"Redis cache set failed: {e}")
+
+    return jsonify(ret_data)
 
 
-@app.get(PREFIX + "/range-download")
-@require_argument(["video_id"])
-@check_arguments(["range_start"])
-def range_download(
-    video_id: str, range_start: int | str = 0
-) -> tuple[dict[str, str], int] | Response:
-    url = decode(video_id)
+@app.route(API_PREFIX + "/download")
+def download():
+    uid = request.args.get("id")
+    if not uid:
+        return create_error_response("Missing required argument: id", 400)
+
+    url = None
+    if redis_client:
+        try:
+            url = redis_client.get(f"ytdl:url:{uid}")
+        except UpstashError as e:
+            return create_error_response("Failed to connect to cache.", 500, exc=e)
+
     if not url:
-        return {"error": "Invalid video id"}, 400
-
-    if isinstance(range_start, str):
-        range_start = int(range_start)
-
-    r = requests.get(
-        url,
-        headers={"Range": f"bytes={range_start}-{range_start + MAX_RESPONE_SIZE}"},
-        stream=True,
-    )
-    if not r.ok:
-        return {"error": "Download failed"}, r.status_code
-
-    if r.status_code != 206:
-        return {"error": "Download failed"}, 500
-
-    resp_headers: dict[str, str] = {
-        "Content-Length": r.headers.get("Content-Length", "0"),
-        "Content-Type": r.headers.get("Content-Type", "application/octet-stream"),
-    }
-    if "Content-Range" in r.headers:
-        resp_headers["Content-Range"] = r.headers["Content-Range"]
-
-    def wrapper():
-        for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
-            print(len(chunk))
-            yield chunk
-
-    return Response(
-        stream_with_context(wrapper()),
-        headers=resp_headers,
-        status=r.status_code,
-    )
-
-
-@app.post(PREFIX + "/part-download")
-@require_argument(["video_id", "filesize_approx", "range_start"])
-def part_download(
-    video_id: str, filesize_approx: str | int, range_start: str | int
-) -> tuple[dict[str, str], int]:
-    if not video_id:
-        return {"error": "Invalid video id"}, 400
-
-    if isinstance(filesize_approx, str):
-        filesize_approx = int(filesize_approx)
-
-    if isinstance(range_start, str):
-        range_start = int(range_start)
-
-    remaining = filesize_approx - range_start
-    if remaining < 0:
-        return {"status": "finished"}, 226
-
-    return {
-        "url": f"/api/ytdl/range-download?video_id={video_id}&range_start={range_start}",
-    }, 200
-
-
-@app.get(PREFIX + "/download")
-@require_argument(["video_id"])
-def download(
-    video_id: str,
-) -> tuple[dict[str, str], int] | Response:
-    url = decode(video_id)
-    if not url:
-        return {"error": "Invalid video id"}, 400
-
-    range_start = request.headers.get("Range")
-    if range_start:
-        return range_download(
-            video_id, range_start=int(range_start.removeprefix("bytes=").split("-")[0])
+        return create_error_response(
+            "Download link expired or invalid. Please try again.", 410
         )
 
-    r = requests.get(url, headers={"Range": "bytes=0-"}, stream=True)
-    if not r.ok:
-        return {"error": "Download failed"}, r.status_code
+    # ATTENTION: All downloads are now forced through the range handler.
+    range_header = request.headers.get(
+        "Range", "bytes=0-"
+    )  # Default to the first chunk if no header is present
+    app.logger.info(f"Handling range request for id '{uid}' with range: {range_header}")
+    return _range_download_handler(url, range_header)
 
-    filesize_approx = int(r.headers.get("Content-Length", 0))
-    if filesize_approx and filesize_approx >= MAX_RESPONE_SIZE:
-        return {"error": "Not supported"}, 501
 
-    def wrapper():
-        for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
-            print(len(chunk))
-            yield chunk
+def _build_check_format_string(
+    req_type: str, has_ffmpeg: bool, custom_format: str
+) -> str:
+    if req_type == "video":
+        if has_ffmpeg:
+            format_str = f"{custom_format}/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]/b"
+        else:
+            format_str = (
+                f"{custom_format}/best*[vcodec!=none][acodec!=none][height<=1080]"
+            )
+    elif req_type == "audio":
+        format_str = f"{custom_format}/bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio"
+    else:
+        raise ValueError("Invalid type specified for format string.")
+    format_str = format_str.lstrip("/")
+    return f"({format_str}/best)[protocol^=http][protocol!*=dash][filesize<={MAX_DOWNLOAD_FILESIZE}]"
 
-    return Response(
-        stream_with_context(wrapper()),
-        content_type=r.headers.get("Content-Type", "application/octet-stream"),
-    )
+
+def _range_download_handler(url: str, range_header: str):
+    try:
+        start_byte_str = range_header.split("=")[-1].split("-")[0]
+        start_byte = int(start_byte_str) if start_byte_str.isdigit() else 0
+    except (IndexError, ValueError):
+        start_byte = 0
+    headers = {"Range": f"bytes={start_byte}-{start_byte + RANGE_CHUNK_SIZE}"}
+    try:
+        r = requests.get(url, headers=headers, stream=True, timeout=10)
+        r.raise_for_status()
+        resp_headers = {
+            "Content-Type": r.headers.get("Content-Type", "application/octet-stream"),
+            "Content-Length": r.headers.get("Content-Length", "0"),
+            "Accept-Ranges": "bytes",
+        }
+        if "Content-Range" in r.headers:
+            resp_headers["Content-Range"] = r.headers["Content-Range"]
+
+        def generate():
+            for chunk in r.iter_content(chunk_size=STREAM_CHUNK_SIZE):
+                yield chunk
+
+        return Response(
+            stream_with_context(generate()), headers=resp_headers, status=r.status_code
+        )
+    except requests.exceptions.RequestException as e:
+        return create_error_response(
+            f"Failed to download content range: {e}", 502, exc=e
+        )
 
 
 if __name__ == "__main__":

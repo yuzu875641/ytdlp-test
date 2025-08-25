@@ -1,4 +1,4 @@
-{% from '_helpers.html' import button, modal, toggle_modal_options, input_modal_options with context %}
+{% from '_helpers.jinja2' import button, modal, toggle_modal_options, input_modal_options with context %}
 
 <!DOCTYPE html>
 <html lang="en">
@@ -29,43 +29,35 @@
         <p>ytdlp frontend test</p>
       </div>
       <div id="download-area">
-        <input autocomplete="off"
-               type="text"
-               id="url-input"
-               oninput="checkInput(this)"
-               placeholder="https://www.youtube.com/watch?v=..." />
+        {# Removed oninput="checkInput(this)" #}
+        <input autocomplete="off" type="text" id="url-input" placeholder="https://www.youtube.com/watch?v=..." />
         <div id="custom-button-area">
           <div class="av-wrapper" data-value="video">
-            {{ button('video', onclick='videoSwitch()', selected=True, id='video-switch') }}
-            {{ button('audio', onclick='audioSwitch()', id='audio-switch') }}
+            {# Removed onclick attributes, relying on IDs #}
+            {{ button('video', selected=True, id='video-switch') }}
+            {{ button('audio', id='audio-switch') }}
           </div>
           {{ button('download',
-                    onclick="handleSubmit()",
                     id='download-button',
                     outline=True) 
           }}
         </div>
       </div>
     </div>
-    {% call modal('settings', True, id='settings-modal', content_width='45%', close_callback="toggleModal('settings')") %}
+
+    {% call modal('settings', visible=False, id='settings-modal', content_width='45%') %}
       {{ toggle_modal_options(title='Use FFMpeg', input_id='use-ffmpeg', description='If disable, you can only download low-quality video, or HQ video without audio for Y*utube') }}
       {{ input_modal_options(title='yt-dlp format selection', input_id='ytdl-fsl', description='You can check out yt-dlp documentation for more info') }}
-      {#
-      {{ toggle_modal_options(title='test', input_id='testInput') }}
-      {{ input_modal_options(title='test', input_id='testInput') }}
-      {{ input_modal_options(title='test', input_id='testInput') }}
-      {{ input_modal_options(title='test', input_id='testInput') }}
-      {{ input_modal_options(title='test', input_id='testInput') }}
-      {{ input_modal_options(title='test', input_id='testInput') }}
-      {{ input_modal_options(title='test', description='testdescription', input_id='testInput') }} #}
     {% endcall %}
-    {% call modal('about', id='about-modal', close_callback="toggleModal('about')") %}
+
+    {% call modal('about', visible=False, id='about-modal') %}
       <p>hello</p>
     {% endcall %}
+
     <footer>
-      {{ button('about', onclick="toggleModal('about')", outline=True) }}
-      {{ button('donate', onclick="toggleModal('about')", outline=True) }}
-      {{ button('settings', onclick="toggleModal('settings')", outline=True) }}
+      {{ button('about', id='open-about-modal', outline=True) }}
+      {{ button('donate', id='open-donate-modal', outline=True) }}
+      {{ button('settings', id='open-settings-modal', outline=True) }}
     </footer>
   </body>
 
