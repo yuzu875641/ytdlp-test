@@ -88,8 +88,14 @@ const YtdlApp = {
     avWrapper: null,
     videoSwitch: null,
     audioSwitch: null,
+    useFfmpeg: null,
+    ytdlFormat: null,
   },
-  state: { isDownloading: false },
+  state: {
+    isDownloading: false,
+    useFfmpeg: false,
+    ytdlFormat: "",
+  },
 
   init() {
     Logger.verbose = this.config.verbose;
@@ -100,6 +106,8 @@ const YtdlApp = {
       avWrapper: document.getElementsByClassName("av-wrapper")[0],
       videoSwitch: document.getElementById("video-switch"),
       audioSwitch: document.getElementById("audio-switch"),
+      useFfmpeg: document.getElementById("use-ffmpeg"),
+      ytdlFormat: document.getElementById("ytdl-fsl"),
     });
 
     this.ui.downloadButton.addEventListener("click", () => this.handleSubmit());
@@ -127,6 +135,16 @@ const YtdlApp = {
         if (modal) this.toggleModal(modal.id);
       });
     });
+
+    this.ui.useFfmpeg.addEventListener("change", (e) => {
+      this.state.useFfmpeg = e.target.checked;
+      Logger.info(`State updated: useFfmpeg is now ${this.state.useFfmpeg}`);
+    });
+    this.ui.ytdlFormat.addEventListener("input", (e) => {
+      this.state.ytdlFormat = e.target.value;
+      Logger.log(`State updated: ytdlFormat is now "${this.state.ytdlFormat}"`);
+    });
+
     Logger.info("Initialization complete.");
   },
 
@@ -161,9 +179,11 @@ const YtdlApp = {
       Logger.warn("Download already in progress. handleSubmit aborted.");
       return;
     }
+
     Logger.info("handleSubmit triggered.");
     this.state.isDownloading = true;
     this.ui.downloadButton.classList.add("disabled");
+
     try {
       await this.processUrl(this.ui.urlInput.value);
       Logger.info("Processing finished successfully.");
@@ -186,15 +206,18 @@ const YtdlApp = {
     if (!isValidHttpUrl(url)) throw new Error("Invalid URL");
     Logger.log(`Starting to process URL: ${url}`);
     await this.updateDownloadText("checking...");
+
     const checkPayload = {
       query: url,
       type: this.ui.avWrapper.getAttribute("data-value"),
-      has_ffmpeg: window.WP_ffmpeg?.loaded,
+      has_ffmpeg: this.state.useFfmpeg,
+      format: this.state.ytdlFormat,
     };
     Logger.log(
       "Sending request to /check endpoint with payload:",
       checkPayload
     );
+
     const response = await fetch(`${this.config.API_BASE}/check`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -227,7 +250,6 @@ const YtdlApp = {
     );
     const downloadUrl = `${this.config.API_BASE}/download?id=${id}`;
 
-    // Fallback for the rare case where file size is unknown.
     if (!fileSizeApprox || fileSizeApprox <= 0) {
       Logger.warn(
         "fileSizeApprox is unknown. Attempting a single direct fetch."
@@ -274,6 +296,7 @@ const YtdlApp = {
         `Chunk received. Size: ${chunk.byteLength}. Total downloaded: ${downloadedBytes}`
       );
     }
+
     const blob = new Blob(chunks, { type: "application/octet-stream" });
     Logger.info(`All chunks received. Final blob size: ${blob.size}`);
     return blob;
@@ -289,13 +312,12 @@ const YtdlApp = {
       Logger.info(
         `Starting concurrent download of ${data.requestedFormats.length} streams.`
       );
-      await this.updateDownloadText(`downloading streams...`);
 
+      await this.updateDownloadText(`downloading streams...`);
       const downloadPromises = data.requestedFormats.map(async (format) => {
         Logger.log(`[Concurrent] Preparing to download format: ${format.type}`);
         const fileBlob = await this._fetchFile(format);
         const fileBuffer = await fileBlob.arrayBuffer();
-
         const safeInputName = sanitizeFilename(
           `${format.formatId}.${format.ext}`
         );
@@ -303,6 +325,7 @@ const YtdlApp = {
         Logger.log(
           `[Concurrent] Writing ${format.type} data to virtual FS as "${safeInputName}"`
         );
+
         await ffmpeg.writeFile(safeInputName, new Uint8Array(fileBuffer));
         remuxParams[`${format.type}Name`] = safeInputName;
         Logger.log(
@@ -314,11 +337,9 @@ const YtdlApp = {
       Logger.info(
         "All streams have been downloaded and written to the virtual FS."
       );
-
       await this.updateDownloadText("merging...");
       const safeOutputName = sanitizeFilename(`${data.title}.${data.ext}`);
       filesToDelete.push(safeOutputName);
-
       const execParams = [
         "-i",
         remuxParams.videoName,
