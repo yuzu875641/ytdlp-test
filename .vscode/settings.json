@@ -2,9 +2,9 @@
   "javascript.validate.enable": true,
   // Add emmet tag autocomplete for jinja and django templates
   "emmet.includeLanguages": {
-    "jinja2": "html",
-    "jinja-html": "html",
-    "django-html": "html"
+    "jinja2": "jinja-html",
+    "jinja-html": "jinja-html",
+    "django-html": "jinja-html"
   },
   "djlint.formatLanguages": [
     "django-html",
