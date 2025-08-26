@@ -73,7 +73,6 @@ try:
         token=app.config["KV_REST_API_TOKEN"],
         allow_telemetry=False,
     )
-    redis_client.ping()
     app.logger.info("Successfully connected to Redis.")
 except UpstashError as e:
     app.logger.critical(
