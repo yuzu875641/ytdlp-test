@@ -34,12 +34,9 @@
 body {
   background-color: rgb(var(--foreground-rgb));
   font-family: "Open Sans", sans-serif;
-  background: linear-gradient(
-      to bottom,
+  background: linear-gradient(to bottom,
       transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+      rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
   position: fixed;
   width: 100vw;
   height: 100vh;
@@ -69,12 +66,11 @@ header {
   opacity: 1 !important;
 }
 
-/* fixed top-1/2 left-1/2 w-2/5 h-auto -translate-x-1/2 -translate-y-2/3 rounded-lg flex flex-col items-center */
 #main-toolbox {
   position: fixed;
   top: 50%;
   left: 50%;
-  width: 40%;
+  width: 90%;
   height: auto;
   transform: translate(-50%, -50%);
   display: flex;
@@ -82,7 +78,6 @@ header {
   align-items: center;
 }
 
-/* flex items-center flex-col mb-[--padding] */
 #logo-area {
   display: flex;
   align-items: center;
@@ -90,7 +85,6 @@ header {
   margin-bottom: var(--padding);
 }
 
-/* flex flex-col w-full z-10 */
 #download-area {
   display: flex;
   flex-direction: column;
@@ -115,11 +109,10 @@ header {
   border-bottom: 0.1rem solid rgb(211, 211, 211);
 }
 
-/* flex flex-row justify-between mt-[--padding] */
 #custom-button-area {
   display: flex;
-  flex-direction: row;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: var(--gap);
   margin-top: var(--padding);
   width: 100%;
 }
@@ -170,7 +163,6 @@ button-component {
   border-radius: 0 7px 7px 0;
 }
 
-/* w-full absolute bottom-0 text-center flex justify-center items-center mb-[--padding] gap-[--gap] */
 footer {
   width: 100%;
   position: absolute;
@@ -208,4 +200,20 @@ button-component.disabled {
 
 #download-button.red {
   color: red;
+}
+
+@media (min-width: 768px) {
+  #main-toolbox {
+    width: 40%;
+  }
+
+  #custom-button-area {
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 0;
+  }
+
+  .modal-content {
+    width: 45% !important;
+  }
 }
