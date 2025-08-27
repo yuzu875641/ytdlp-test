@@ -284,7 +284,6 @@ def check():
             redis_client.set(f"ytdl:url:{uid}", url, ex=URL_CACHE_TTL_SECONDS)
 
         ret_data["id"] = uid
-        # ATTENTION: Always set isPart and fileSizeApprox to force ranged downloads on the client.
         ret_data["isPart"] = True
         ret_data["fileSizeApprox"] = info.get("filesize_approx", 0)
 
@@ -318,7 +317,6 @@ def download():
             "Download link expired or invalid. Please try again.", 410
         )
 
-    # ATTENTION: All downloads are now forced through the range handler.
     range_header = request.headers.get(
         "Range", "bytes=0-"
     )  # Default to the first chunk if no header is present

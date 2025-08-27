@@ -49,3 +49,17 @@
     <input id="{{ input_id }}" type="{{ type }}" {{ kwargs|xmlattr }}>
   </div>
 {% endmacro %}
+
+
+{% macro tabs(id, titles) %}
+  <div class="tabs-container" id="{{ id }}">
+    <div class="tab-buttons">
+      {% for title in titles %}
+        <button class="tab-button {% if loop.first %}active{% endif %}" data-tab="{{ loop.index0 }}">
+          {{ title }}
+        </button>
+      {% endfor %}
+    </div>
+    <div class="tab-content">{{ caller() }}</div>
+  </div>
+{% endmacro %}

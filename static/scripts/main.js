@@ -145,6 +145,20 @@ const YtdlApp = {
       Logger.log(`State updated: ytdlFormat is now "${this.state.ytdlFormat}"`);
     });
 
+    document.querySelectorAll(".tabs-container").forEach((tabsContainer) => {
+      const tabButtons = tabsContainer.querySelectorAll(".tab-button");
+      const tabPanes = tabsContainer.querySelectorAll(".tab-pane");
+      tabButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const tabIndex = button.getAttribute("data-tab");
+          tabButtons.forEach((btn) => btn.classList.remove("active"));
+          button.classList.add("active");
+          tabPanes.forEach((pane) => pane.classList.remove("active"));
+          tabPanes[tabIndex].classList.add("active");
+        });
+      });
+    });
+
     Logger.info("Initialization complete.");
   },
 

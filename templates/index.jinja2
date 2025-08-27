@@ -1,4 +1,4 @@
-{% from '_helpers.jinja2' import button, modal, toggle_modal_options, input_modal_options with context %}
+{% from '_helpers.jinja2' import button, modal, toggle_modal_options, input_modal_options, tabs with context %}
 
 <!DOCTYPE html>
 <html lang="en">
@@ -29,11 +29,9 @@
         <p>ytdlp frontend test</p>
       </div>
       <div id="download-area">
-        {# Removed oninput="checkInput(this)" #}
         <input autocomplete="off" type="text" id="url-input" placeholder="https://www.youtube.com/watch?v=..." />
         <div id="custom-button-area">
           <div class="av-wrapper" data-value="video">
-            {# Removed onclick attributes, relying on IDs #}
             {{ button('video', selected=True, id='video-switch') }}
             {{ button('audio', id='audio-switch') }}
           </div>
@@ -46,12 +44,45 @@
     </div>
 
     {% call modal('settings', visible=False, id='settings-modal', content_width='45%') %}
-      {{ toggle_modal_options(title='Use FFMpeg', input_id='use-ffmpeg', description='If disable, you can only download low-quality video, or HQ video without audio for Y*utube') }}
-      {{ input_modal_options(title='yt-dlp format selection', input_id='ytdl-fsl', description='You can check out yt-dlp documentation for more info') }}
+      {% call tabs('settings-tabs', ['yt-dlp', 'FFmpeg']) %}
+        <div class="tab-pane active">
+          {{ input_modal_options(title='yt-dlp format selection', input_id='ytdl-fsl', description='You can check out yt-dlp documentation for more info') }}
+        </div>
+        <div class="tab-pane">
+          {{ toggle_modal_options(title='Use FFmpeg', input_id='use-ffmpeg', description='If enabled, allows merging separate video and audio streams for higher quality. Requires a bit more processing time.') }}
+        </div>
+      {% endcall %}
     {% endcall %}
 
-    {% call modal('about', visible=False, id='about-modal') %}
-      <p>hello</p>
+    {% call modal('about', visible=True, id='about-modal') %}
+      <div class="about-content">
+        <h2>What is this thing?</h2>
+        <p>
+          So, you've stumbled upon this digital marvel. What does it do? Simple. It takes those pesky video URLs you throw at it and, through a series of questionable digital gymnastics and server-side sorcery, spits out a downloadable file. It's like a vending machine, but for pixels and sound waves. We bravely proxy your request, wrestle the file from the internet's grasp, and deliver it to you, all without you having to lift more than a finger. Magic? No. Just a whole lot of code and a sprinkle of optimism.
+        </p>
+        <hr>
+        <h2>Changelog</h2>
+        <ul class="changelog-list">
+          <li>
+            <strong>The "Make it Work" Update:</strong> It, you know, works. You can download things.
+          </li>
+          <li>
+            <strong>The "Stop Waiting So Long" Update:</strong> Implemented caching and concurrent downloads, so you can get your files twice as fast without aging a decade.
+          </li>
+          <li>
+            <strong>The "What's in the Box?" Update:</strong> Added a whole bunch of logging so even we can figure out what's going on when it breaks.
+          </li>
+          <li>
+            <strong>The "Secret Handshake" Update:</strong> Switched to a secure UID system for download links. Much safer, much cooler.
+          </li>
+          <li>
+            <strong>The "One Size Fits All" Update:</strong> Made the interface responsive. It now looks questionable on your phone, too!
+          </li>
+          <li>
+            <strong>The "Clicky Tabs" Update:</strong> Added these fancy tabs to the settings modal. Peak web design.
+          </li>
+        </ul>
+      </div>
     {% endcall %}
 
     <footer>
@@ -60,5 +91,4 @@
       {{ button('settings', id='open-settings-modal', outline=True) }}
     </footer>
   </body>
-
 </html>
