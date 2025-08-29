@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 import re
-from functools import cache
 from random import randint
 from typing import TYPE_CHECKING, Literal
 
 import requests
+from dotenv import find_dotenv, load_dotenv
 from flask import Flask, Response, redirect, request, url_for
+from upstash_redis import Redis
+from upstash_redis.errors import UpstashError
 
 PREFIX = "/api/gelbooru" if __name__ != "__main__" else "/"
 DEFAULT_TAGS = "+".join(
     [
-        "suzuran_(spring_praise)_(arknights)",
+        "suzuran_(arknights)",
         "rating:general",
     ]
 )
@@ -23,7 +26,7 @@ API_URL = (
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 }
-
+CACHE_TTL = 1800
 
 if TYPE_CHECKING:
     SizeType = Literal[
@@ -32,14 +35,31 @@ if TYPE_CHECKING:
         "preview_url",
     ]
 
+load_dotenv()
+load_dotenv(find_dotenv(".env.local"))
 
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+formatter = logging.Formatter(
+    "[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s"
 )
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+app.logger.handlers[0].setFormatter(formatter)
+app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
+app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
+app.config["KV_REST_API_TOKEN"] = os.getenv("KV_REST_API_TOKEN", "")
+
+try:
+    redis_client = Redis(
+        url=app.config["KV_REST_API_URL"],
+        token=app.config["KV_REST_API_TOKEN"],
+        allow_telemetry=False,
+    )
+    app.logger.info("Successfully connected to Redis.")
+except UpstashError as e:
+    app.logger.critical(
+        f"Could not connect to Redis: {e}. Caching and cookie persistence will be disabled."
+    )
+    redis_client = None
 
 
 class NoImageFound(Exception):
@@ -60,9 +80,32 @@ class FailedToExtractCount(Exception):
 
 def logger_decorator(func):
     def wrapper(*args, **kwargs):
-        logger.debug(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
+        app.logger.debug(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
         result = func(*args, **kwargs)
-        logger.debug(f"{func.__name__} returned: {result}")
+        app.logger.debug(f"{func.__name__} returned: {result}")
+        return result
+
+    return wrapper
+
+
+def cache(func):
+    def wrapper(*args, **kwargs):
+        cache_key = "{}:{}:{}".format(
+            func.__name__,
+            ";".join(str(arg) for arg in args),
+            ";".join(f"{k}={v}" for k, v in kwargs.items()),
+        )
+        if redis_client:
+            cached_result = redis_client.get(cache_key)
+            if cached_result:
+                app.logger.info(f"Cache hit for {cache_key}")
+                return cached_result
+
+        result = func(*args, **kwargs)
+
+        if redis_client:
+            redis_client.set(cache_key, result, ex=CACHE_TTL)
+
         return result
 
     return wrapper
@@ -129,7 +172,7 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> str:
             continue
 
         for image_size in image_sizes:
-            logger.info(f"Trying {image_size} for post {post.get('id')}")
+            app.logger.info(f"Trying {image_size} for post {post.get('id')}")
             url = post.get(image_size)
             if not url or not isinstance(url, str):
                 continue
@@ -137,12 +180,12 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> str:
             if not is_fit_aspect_ratio(
                 post, image_size=image_size, aspect_ratio=aspect_ratio
             ):
-                logger.info(f"Aspect ratio not fit for post {post.get('id')}")
+                app.logger.info(f"Aspect ratio not fit for post {post.get('id')}")
                 break
 
             response = requests.get(url, stream=True)
             if response.ok and is_fit_response_size(response) < 4:
-                logger.info(f"Selected {image_size} for post {post.get('id')}")
+                app.logger.info(f"Selected {image_size} for post {post.get('id')}")
                 response.close()
                 return response.url
 
@@ -194,7 +237,7 @@ def get_random_image(
             return get_image(url, aspect_ratio=aspect_ratio)
         except NoImageFound:
             if aspect_ratio:
-                logger.warning(
+                app.logger.warning(
                     "No image found with the given aspect ratio, trying again"
                 )
                 continue
