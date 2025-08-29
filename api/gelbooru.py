@@ -307,7 +307,9 @@ def add_header(r: Response):
     """
     Force cache to be disabled.
     """
-    r.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    r.headers["Cache-Control"] = (
+        "private, no-store, no-cache, must-revalidate, max-age=0"
+    )
     r.headers["Pragma"] = "no-cache"
     r.headers["Expires"] = "0"
     return r
