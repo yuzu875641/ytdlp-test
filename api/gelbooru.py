@@ -1,16 +1,28 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import re
 from random import randint
-from typing import TYPE_CHECKING, Hashable, Literal, cast
+from typing import TYPE_CHECKING
 
 import requests
 from dotenv import find_dotenv, load_dotenv
 from flask import Flask, Response, request
 from upstash_redis import Redis
 from upstash_redis.errors import UpstashError
+
+if TYPE_CHECKING:
+    from typing import Any, Literal
+
+    SizeType = Literal[
+        "file_url",
+        "sample_url",
+        "preview_url",
+    ]
+
 
 PREFIX = "/api/gelbooru" if __name__ != "__main__" else "/"
 DEFAULT_TAGS = "+".join(
@@ -27,12 +39,6 @@ HEADERS = {
 }
 CACHE_TTL = 1800
 
-if TYPE_CHECKING:
-    SizeType = Literal[
-        "file_url",
-        "sample_url",
-        "preview_url",
-    ]
 
 load_dotenv()
 load_dotenv(find_dotenv(".env.local"))
@@ -90,44 +96,67 @@ def logger_decorator(func):
     return wrapper
 
 
-def cache(_type: type[str | int | bytes | bool] = str):
+def hashing(value: Any) -> str:
+    if isinstance(value, (bytes, str, int, float, bool)):
+        norm = str(value).encode("utf-8") if not isinstance(value, bytes) else value
+    elif isinstance(value, (dict, list, tuple, set, frozenset)):
+        norm = json.dumps(
+            sorted(value) if isinstance(value, (set, frozenset)) else value,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    else:
+        raise TypeError(f"Unsupported type: {type(value)}")
+    return hashlib.md5(norm).hexdigest()[:8]
+
+
+def make_cache_key(func, args: tuple[Any], kwargs: dict[str, Any]) -> str:
+    key_parts = [func.__name__] + [hashing(arg) for arg in args]
+    key_parts += [f"{k}={hashing(v)}" for k, v in kwargs.items()]
+    return ":".join(key_parts)
+
+
+def cache(
+    _type: type[str | int | bytes | bool | dict | list] = str, expire: int = CACHE_TTL
+):
     def decorator(func):
         def wrapper(*args, **kwargs):
-            cache_key = "{}:{}:{}".format(
-                func.__name__,
-                ";".join(str(arg) for arg in args if isinstance(arg, Hashable)),
-                ";".join(
-                    f"{k}={v}" for k, v in kwargs.items() if isinstance(v, Hashable)
-                ),
-            )
-            if redis_client:
-                cached_result = cast(str | None, redis_client.get(cache_key))
-                if cached_result:
-                    app.logger.info(f"Cache hit for {cache_key}")
-                    if _type is bytes:
-                        return cached_result.encode("utf-8")
-                    elif _type is int:
-                        return int(cached_result)
-                    elif _type is bool:
-                        return str_to_bool(cached_result)
-                    else:
-                        return cached_result
+            if not redis_client:
+                return func(*args, **kwargs)
+
+            cache_key = make_cache_key(func, args, kwargs)
+            cached_result = redis_client.get(cache_key)
+            if cached_result:
+                app.logger.info(f"Cache hit for {cache_key}")
+                return _deserialize_cached_result(cached_result, _type)
 
             result = func(*args, **kwargs)
-
-            if redis_client:
-                # Convert result to string for Redis storage
-                if isinstance(result, bytes):
-                    redis_value = result.decode("utf-8", errors="surrogateescape")
-                else:
-                    redis_value = str(result)
-                redis_client.set(cache_key, redis_value, ex=CACHE_TTL)
-
+            redis_client.set(cache_key, _serialize_result(result), ex=expire)
             return result
 
         return wrapper
 
     return decorator
+
+
+def _serialize_result(result: Any) -> str:
+    if isinstance(result, bytes):
+        return result.decode("utf-8", errors="surrogateescape")
+    if isinstance(result, (dict, list)):
+        return json.dumps(result)
+    return str(result)
+
+
+def _deserialize_cached_result(cached_result: str, _type: type) -> Any:
+    if _type is bytes:
+        return cached_result.encode("utf-8")
+    if _type is int:
+        return int(cached_result)
+    if _type is bool:
+        return str_to_bool(cached_result)
+    if _type in {dict, list}:
+        return json.loads(cached_result)
+    return cached_result
 
 
 def str_to_bool(value: str | bool | None) -> bool:
@@ -208,12 +237,24 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> requests.Resp
     raise NoImageFound
 
 
-def get_image(url: str, aspect_ratio: float | None = None) -> requests.Response:
+# only use for api call and json return for caching. also 3hrs
+@cache(dict, expire=10800)
+def api_get(url: str) -> dict | None:
     response = requests.get(url, headers=HEADERS)
-    if not response or not response.ok:
+    response.raise_for_status()
+    return response.json()
+
+
+def get_image(url: str, aspect_ratio: float | None = None) -> requests.Response:
+    try:
+        data = api_get(url)
+    except requests.RequestException as e:
+        app.logger.error(f"API request failed: {e}")
         raise RequestToAPIFailed
 
-    data: dict[str, str] = response.json()
+    if not data:
+        raise RequestToAPIFailed
+
     if not data or not data.get("post"):
         raise NoImageFound
 
@@ -243,8 +284,10 @@ def get_random_image(
 ) -> requests.Response | None:
     for _ in range(5):
         try:
+            # pid == offset
+            # so we need to divide tag_count with limit to avoid out of range
             url = (
-                API_URL.format(1, tags)
+                API_URL.format(limit, tags)
                 + f"&pid={randint(0, get_tags_count(tags) // limit)}"
             )
             return get_image(url, aspect_ratio=aspect_ratio)
