@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 from random import randint
-from typing import TYPE_CHECKING, Hashable, Literal, cast
+from typing import TYPE_CHECKING, Any, Hashable, Literal, cast
 
 import requests
 from dotenv import find_dotenv, load_dotenv
@@ -90,16 +91,33 @@ def logger_decorator(func):
     return wrapper
 
 
-def cache(_type: type[str | int | bytes | bool] = str):
+def make_cache_key(func, args: tuple[Any], kwargs: dict[str, Any]):
+    cache_key = func.__name__
+    for arg in args:
+        if isinstance(arg, Hashable):
+            cache_key += ":" + str(hash(arg))
+        elif isinstance(arg, dict):
+            cache_key += ":" + str(hash(frozenset(arg.items())))
+        elif isinstance(arg, list):
+            cache_key += ":" + str(hash(tuple(arg)))
+
+    for k, v in kwargs.items():
+        if isinstance(v, Hashable):
+            cache_key += ":" + str(hash((k, v)))
+        elif isinstance(v, dict):
+            cache_key += ":" + str(hash(frozenset(v.items())))
+        elif isinstance(v, list):
+            cache_key += ":" + str(hash(tuple(v)))
+
+    return cache_key
+
+
+def cache(
+    _type: type[str | int | bytes | bool | dict | list] = str, expire: int = CACHE_TTL
+):
     def decorator(func):
         def wrapper(*args, **kwargs):
-            cache_key = "{}:{}:{}".format(
-                func.__name__,
-                ";".join(str(arg) for arg in args if isinstance(arg, Hashable)),
-                ";".join(
-                    f"{k}={v}" for k, v in kwargs.items() if isinstance(v, Hashable)
-                ),
-            )
+            cache_key = make_cache_key(func, args, kwargs)
             if redis_client:
                 cached_result = cast(str | None, redis_client.get(cache_key))
                 if cached_result:
@@ -110,6 +128,8 @@ def cache(_type: type[str | int | bytes | bool] = str):
                         return int(cached_result)
                     elif _type is bool:
                         return str_to_bool(cached_result)
+                    elif _type is dict or _type is list:
+                        return json.loads(cached_result)
                     else:
                         return cached_result
 
@@ -121,7 +141,7 @@ def cache(_type: type[str | int | bytes | bool] = str):
                     redis_value = result.decode("utf-8", errors="surrogateescape")
                 else:
                     redis_value = str(result)
-                redis_client.set(cache_key, redis_value, ex=CACHE_TTL)
+                redis_client.set(cache_key, redis_value, ex=expire)
 
             return result
 
@@ -208,12 +228,24 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> requests.Resp
     raise NoImageFound
 
 
-def get_image(url: str, aspect_ratio: float | None = None) -> requests.Response:
+# only use for api call and json return for caching. also 3hrs
+@cache(dict, expire=10800)
+def api_get(url: str) -> dict | None:
     response = requests.get(url, headers=HEADERS)
-    if not response or not response.ok:
+    response.raise_for_status()
+    return response.json()
+
+
+def get_image(url: str, aspect_ratio: float | None = None) -> requests.Response:
+    try:
+        data = api_get(url)
+    except requests.RequestException as e:
+        app.logger.error(f"API request failed: {e}")
         raise RequestToAPIFailed
 
-    data: dict[str, str] = response.json()
+    if not data:
+        raise RequestToAPIFailed
+
     if not data or not data.get("post"):
         raise NoImageFound
 
@@ -243,8 +275,10 @@ def get_random_image(
 ) -> requests.Response | None:
     for _ in range(5):
         try:
+            # pid == offset
+            # so we need to divide tag_count with limit to avoid out of range
             url = (
-                API_URL.format(1, tags)
+                API_URL.format(limit, tags)
                 + f"&pid={randint(0, get_tags_count(tags) // limit)}"
             )
             return get_image(url, aspect_ratio=aspect_ratio)
