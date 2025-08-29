@@ -318,13 +318,9 @@ def generate_response(url: str, response: requests.Response | None = None):
         image_response = response
     else:
         try:
-            headers = dict(HEADERS)
-            if "Range" in request.headers:
-                headers["Range"] = request.headers["Range"]
-            image_response = requests.get(url, headers=headers, stream=True)
+            image_response = requests.get(url, headers=HEADERS, stream=True)
         except requests.RequestException:
             return "Failed to get image", 500
-
         if not image_response.ok:
             return "Failed to get image", 500
 
@@ -334,7 +330,7 @@ def generate_response(url: str, response: requests.Response | None = None):
             response_headers[header] = image_response.headers[header]
 
     def generate():
-        for chunk in image_response.iter_content(1024):
+        for chunk in image_response.iter_content(2048):
             yield chunk
         image_response.close()
 
