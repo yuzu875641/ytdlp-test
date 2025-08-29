@@ -21,6 +21,13 @@
   transition: visibility 0s 0.2s, opacity 0.2s ease-in-out;
 }
 
+/* .modal p {
+  background-color: rgb(39 39 39);
+  padding: 1rem 2rem;
+  border-radius: 10px;
+  margin: unset;
+} */
+
 .modal-content {
   background-color: var(--accent);
   width: 50%;
@@ -33,6 +40,7 @@
   gap: var(--gap);
   overflow-y: auto;
 }
+
 
 .modal-content::-webkit-scrollbar {
   width: 4px;
@@ -72,11 +80,13 @@
 .modal-toggle-button input {
   display: none;
 }
-.modal-toggle-button input + div {
+
+.modal-toggle-button input+div {
   position: relative;
 }
-.modal-toggle-button input + div:before,
-.modal-toggle-button input + div:after {
+
+.modal-toggle-button input+div:before,
+.modal-toggle-button input+div:after {
   --s: 1;
   content: "";
   position: absolute;
@@ -87,23 +97,27 @@
   transform: scaleX(var(--s));
   transition: transform var(--duration) ease;
 }
-.modal-toggle-button input + div:before {
+
+.modal-toggle-button input+div:before {
   --s: 0;
   left: 0;
   transform-origin: 0 50%;
   border-radius: 2px 0 0 2px;
 }
-.modal-toggle-button input + div:after {
+
+.modal-toggle-button input+div:after {
   left: 28px;
   transform-origin: 100% 50%;
   border-radius: 0 2px 2px 0;
 }
-.modal-toggle-button input + div span {
+
+.modal-toggle-button input+div span {
   padding-left: 56px;
   line-height: 24px;
   color: var(--text);
 }
-.modal-toggle-button input + div span:before {
+
+.modal-toggle-button input+div span:before {
   --x: 0;
   --b: var(--circle);
   --s: 4px;
@@ -118,16 +132,20 @@
   transform: translateX(var(--x));
   transition: box-shadow var(--duration) ease, transform var(--duration) ease;
 }
-.modal-toggle-button input + div span:not(:empty) {
+
+.modal-toggle-button input+div span:not(:empty) {
   padding-left: 64px;
 }
-.modal-toggle-button input:checked + div:before {
+
+.modal-toggle-button input:checked+div:before {
   --s: 1;
 }
-.modal-toggle-button input:checked + div:after {
+
+.modal-toggle-button input:checked+div:after {
   --s: 0;
 }
-.modal-toggle-button input:checked + div span:before {
+
+.modal-toggle-button input:checked+div span:before {
   --x: 28px;
   --s: 12px;
   --b: var(--dot);

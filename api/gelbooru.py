@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-import base64
 import logging
+import os
 import re
-from functools import cache
 from random import randint
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Hashable, Literal, cast
 
 import requests
-from flask import Flask, Response, redirect, request, url_for
+from dotenv import find_dotenv, load_dotenv
+from flask import Flask, Response, request
+from upstash_redis import Redis
+from upstash_redis.errors import UpstashError
 
 PREFIX = "/api/gelbooru" if __name__ != "__main__" else "/"
 DEFAULT_TAGS = "+".join(
     [
-        "suzuran_(spring_praise)_(arknights)",
+        "suzuran_(arknights)",
         "rating:general",
     ]
 )
@@ -23,7 +25,7 @@ API_URL = (
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 }
-
+CACHE_TTL = 1800
 
 if TYPE_CHECKING:
     SizeType = Literal[
@@ -32,14 +34,34 @@ if TYPE_CHECKING:
         "preview_url",
     ]
 
+load_dotenv()
+load_dotenv(find_dotenv(".env.local"))
 
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+formatter = logging.Formatter(
+    "[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s"
 )
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+app.logger.handlers[0].setFormatter(formatter)
+app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
+app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
+app.config["KV_REST_API_TOKEN"] = os.getenv("KV_REST_API_TOKEN", "")
+app.config["GELBOORU_USER_ID"] = os.getenv("GELBOORU_USER_ID", "")
+app.config["GELBOORU_API_KEY"] = os.getenv("GELBOORU_API_KEY", "")
+
+try:
+    redis_client = Redis(
+        url=app.config["KV_REST_API_URL"],
+        token=app.config["KV_REST_API_TOKEN"],
+        allow_telemetry=False,
+    )
+    app.logger.info("Successfully connected to Redis.")
+except UpstashError as e:
+    app.logger.critical(f"Could not connect to Redis: {e}. Caching will be disabled.")
+    redis_client = None
+
+if app.config["GELBOORU_USER_ID"] and app.config["GELBOORU_API_KEY"]:
+    API_URL += f"&user_id={app.config['GELBOORU_USER_ID']}&api_key={app.config['GELBOORU_API_KEY']}"
 
 
 class NoImageFound(Exception):
@@ -60,12 +82,52 @@ class FailedToExtractCount(Exception):
 
 def logger_decorator(func):
     def wrapper(*args, **kwargs):
-        logger.debug(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
+        app.logger.debug(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
         result = func(*args, **kwargs)
-        logger.debug(f"{func.__name__} returned: {result}")
+        app.logger.debug(f"{func.__name__} returned: {result}")
         return result
 
     return wrapper
+
+
+def cache(_type: type[str | int | bytes | bool] = str):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            cache_key = "{}:{}:{}".format(
+                func.__name__,
+                ";".join(str(arg) for arg in args if isinstance(arg, Hashable)),
+                ";".join(
+                    f"{k}={v}" for k, v in kwargs.items() if isinstance(v, Hashable)
+                ),
+            )
+            if redis_client:
+                cached_result = cast(str | None, redis_client.get(cache_key))
+                if cached_result:
+                    app.logger.info(f"Cache hit for {cache_key}")
+                    if _type is bytes:
+                        return cached_result.encode("utf-8")
+                    elif _type is int:
+                        return int(cached_result)
+                    elif _type is bool:
+                        return str_to_bool(cached_result)
+                    else:
+                        return cached_result
+
+            result = func(*args, **kwargs)
+
+            if redis_client:
+                # Convert result to string for Redis storage
+                if isinstance(result, bytes):
+                    redis_value = result.decode("utf-8", errors="surrogateescape")
+                else:
+                    redis_value = str(result)
+                redis_client.set(cache_key, redis_value, ex=CACHE_TTL)
+
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 def str_to_bool(value: str | bool | None) -> bool:
@@ -76,11 +138,6 @@ def str_to_bool(value: str | bool | None) -> bool:
         return value
 
     return value.lower() in ("yes", "true", "t", "y", "1")
-
-
-@cache
-def make_url(tags: str, limit: int = 1) -> str:
-    return API_URL.format(limit, tags)
 
 
 @logger_decorator
@@ -112,7 +169,7 @@ def is_fit_aspect_ratio(
     return abs((width / height) - aspect_ratio) < 0.1
 
 
-def select_image(data: dict, aspect_ratio: float | None = None) -> str:
+def select_image(data: dict, aspect_ratio: float | None = None) -> requests.Response:
     image_sizes = dict.fromkeys(
         [
             request.args.get("prefer_size", "file_url"),
@@ -129,7 +186,7 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> str:
             continue
 
         for image_size in image_sizes:
-            logger.info(f"Trying {image_size} for post {post.get('id')}")
+            app.logger.info(f"Trying {image_size} for post {post.get('id')}")
             url = post.get(image_size)
             if not url or not isinstance(url, str):
                 continue
@@ -137,14 +194,13 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> str:
             if not is_fit_aspect_ratio(
                 post, image_size=image_size, aspect_ratio=aspect_ratio
             ):
-                logger.info(f"Aspect ratio not fit for post {post.get('id')}")
+                app.logger.info(f"Aspect ratio not fit for post {post.get('id')}")
                 break
 
             response = requests.get(url, stream=True)
             if response.ok and is_fit_response_size(response) < 4:
-                logger.info(f"Selected {image_size} for post {post.get('id')}")
-                response.close()
-                return response.url
+                app.logger.info(f"Selected {image_size} for post {post.get('id')}")
+                return response
 
         else:
             response.close() if response else None
@@ -152,7 +208,7 @@ def select_image(data: dict, aspect_ratio: float | None = None) -> str:
     raise NoImageFound
 
 
-def get_image(url: str, aspect_ratio: float | None = None) -> str:
+def get_image(url: str, aspect_ratio: float | None = None) -> requests.Response:
     response = requests.get(url, headers=HEADERS)
     if not response or not response.ok:
         raise RequestToAPIFailed
@@ -164,9 +220,9 @@ def get_image(url: str, aspect_ratio: float | None = None) -> str:
     return select_image(data, aspect_ratio=aspect_ratio)
 
 
-@cache
+@cache(int)
 def get_tags_count(tags: str) -> int:
-    url = make_url(tags, limit=1)
+    url = API_URL.format(1, tags)
     response = requests.get(url, headers=HEADERS, stream=True)
 
     pattern = re.compile(r"count\W+(\d+)")
@@ -184,17 +240,17 @@ def get_random_image(
     tags: str,
     limit: int = 5,
     aspect_ratio: float | None = None,
-) -> str:
+) -> requests.Response | None:
     for _ in range(5):
         try:
             url = (
-                make_url(tags, limit=limit)
+                API_URL.format(1, tags)
                 + f"&pid={randint(0, get_tags_count(tags) // limit)}"
             )
             return get_image(url, aspect_ratio=aspect_ratio)
         except NoImageFound:
             if aspect_ratio:
-                logger.warning(
+                app.logger.warning(
                     "No image found with the given aspect ratio, trying again"
                 )
                 continue
@@ -214,19 +270,22 @@ def add_header(r: Response):
     return r
 
 
-def generate_response(url: str):
+def generate_response(url: str, response: requests.Response | None = None):
     headers = dict(HEADERS)
     # Forward the Range header to the upstream server
     if "Range" in request.headers:
         headers["Range"] = request.headers["Range"]
 
-    try:
-        image_response = requests.get(url, headers=headers, stream=True)
-    except requests.RequestException:
-        return "Failed to get image", 500
+    if response:
+        image_response = response
+    else:
+        try:
+            image_response = requests.get(url, headers=headers, stream=True)
+        except requests.RequestException:
+            return "Failed to get image", 500
 
-    if not image_response or not image_response.ok:
-        return "Failed to get image", 500
+        if not image_response or not image_response.ok:
+            return "Failed to get image", 500
 
     # Prepare response headers
     response_headers = {}
@@ -253,8 +312,8 @@ def index():
     aspect_ratio = request.args.get("aspect_ratio", None, float)
 
     try:
-        url = get_random_image(tags, limit, aspect_ratio=aspect_ratio)
-        if not url:
+        resp = get_random_image(tags, limit, aspect_ratio=aspect_ratio)
+        if not resp:
             return "No image found", 404
     except NoImageFound:
         return "No image found", 404
@@ -264,11 +323,9 @@ def index():
         return "Failed to extract image count", 500
 
     if not str_to_bool(request.args.get("proxy", "false")):
-        return generate_response(url)
+        return generate_response(resp.url, response=resp)
 
-    return redirect(
-        url_for("proxy", b64url=base64.b64encode(url.encode("utf-8"))), code=302
-    )
+    return "Undefined error", 500
 
 
 @app.route(PREFIX + "/post")
@@ -278,10 +335,10 @@ def post():
         return "No id provided", 400
 
     try:
-        url = get_image(
+        resp = get_image(
             f"https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&id={id}"
         )
-        if not url:
+        if not resp:
             return "No image found", 404
     except NoImageFound:
         return "No image found", 404
@@ -291,34 +348,9 @@ def post():
         return "Failed to extract image count", 500
 
     if not str_to_bool(request.args.get("proxy", "false")):
-        return generate_response(url)
+        return generate_response(resp.url, response=resp)
 
-    return redirect(
-        url_for("proxy", b64url=base64.b64encode(url.encode("utf-8"))), code=302
-    )
-
-
-@app.route(PREFIX + "/proxy")
-def proxy():
-    b64url = request.args.get("b64url")
-    if not b64url:
-        return "No b64url provided", 400
-
-    url = base64.b64decode(b64url).decode("utf-8")
-    if not url:
-        return "Invalid b64url", 400
-
-    # return generate_response(lambda: requests.get(url, headers=HEADERS, stream=True))
-
-    try:
-        image_response = requests.get(url, stream=True)
-    except requests.RequestException:
-        return "Failed to get image", 500
-
-    if not image_response or not image_response.ok:
-        return "Failed to get image", 500
-
-    return generate_response(url)
+    return "Undefined error", 500
 
 
 if __name__ == "__main__":

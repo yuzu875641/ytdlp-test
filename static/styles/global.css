@@ -202,6 +202,76 @@ button-component.disabled {
   color: red;
 }
 
+.tabs-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-buttons {
+  display: flex;
+  border-bottom: 1px solid var(--disabled);
+}
+
+.tab-button {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--disabled-text);
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease-in-out;
+}
+
+.tab-button.active {
+  color: var(--selected);
+  border-bottom-color: var(--selected);
+}
+
+.tab-content .tab-pane {
+  display: none;
+  padding: 1rem 0;
+}
+
+.tab-content .tab-pane.active {
+  display: block;
+}
+
+.about-content h2 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-color);
+  font-weight: bold;
+}
+
+.about-content p {
+  line-height: 1.6;
+  color: var(--disabled-text);
+}
+
+.about-content hr {
+  border: none;
+  border-top: 1px solid var(--disabled);
+  margin: 1.5rem 0;
+}
+
+.changelog-list {
+  font-size: 0.9rem;
+  list-style: none;
+  padding-left: 0;
+}
+
+.changelog-list li {
+  margin-bottom: 0.75rem;
+  color: var(--disabled-text);
+}
+
+.changelog-list li strong {
+  color: var(--text-color);
+  display: block;
+}
+
+
 @media (min-width: 768px) {
   #main-toolbox {
     width: 40%;
