@@ -307,47 +307,38 @@ def add_header(r: Response):
     """
     Force cache to be disabled.
     """
-    r.headers["Cache-Control"] = (
-        "private, no-store, no-cache, must-revalidate, max-age=0"
-    )
+    r.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     r.headers["Pragma"] = "no-cache"
     r.headers["Expires"] = "0"
     return r
 
 
 def generate_response(url: str, response: requests.Response | None = None):
-    headers = dict(HEADERS)
-    # Forward the Range header to the upstream server
-    if "Range" in request.headers:
-        headers["Range"] = request.headers["Range"]
-
     if response:
         image_response = response
     else:
         try:
+            headers = dict(HEADERS)
+            if "Range" in request.headers:
+                headers["Range"] = request.headers["Range"]
             image_response = requests.get(url, headers=headers, stream=True)
         except requests.RequestException:
             return "Failed to get image", 500
 
-        if not image_response or not image_response.ok:
+        if not image_response.ok:
             return "Failed to get image", 500
 
-    # Prepare response headers
     response_headers = {}
-
-    # Copy important headers from the original response
-    for header in ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"]:
+    for header in ("Content-Type", "Content-Length"):
         if header in image_response.headers:
             response_headers[header] = image_response.headers[header]
 
     def generate():
         for chunk in image_response.iter_content(1024):
             yield chunk
+        image_response.close()
 
-    # Use the correct status code (206 for partial content)
-    status_code = image_response.status_code
-
-    return Response(generate(), headers=response_headers, status=status_code)
+    return Response(generate(), headers=response_headers)
 
 
 @app.route(PREFIX)
