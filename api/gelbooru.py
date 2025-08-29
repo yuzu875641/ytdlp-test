@@ -6,7 +6,7 @@ import logging
 import os
 import re
 from random import randint
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING
 
 import requests
 from dotenv import find_dotenv, load_dotenv
@@ -15,6 +15,8 @@ from upstash_redis import Redis
 from upstash_redis.errors import UpstashError
 
 if TYPE_CHECKING:
+    from typing import Any, Literal
+
     SizeType = Literal[
         "file_url",
         "sample_url",
