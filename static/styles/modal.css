@@ -21,12 +21,23 @@
   transition: visibility 0s 0.2s, opacity 0.2s ease-in-out;
 }
 
-/* .modal p {
-  background-color: rgb(39 39 39);
-  padding: 1rem 2rem;
-  border-radius: 10px;
-  margin: unset;
-} */
+@keyframes gradient-move {
+  0% {
+    background-position: 100% 50%
+  }
+
+  100% {
+    background-position: -33% 50%
+  }
+}
+
+.modal-title {
+  font-size: 2rem;
+  background-image: linear-gradient(200deg, #353535, #ff0000);
+  color: transparent;
+  background-clip: text;
+  font-weight: bold;
+}
 
 .modal-content {
   background-color: var(--accent);
@@ -170,8 +181,23 @@
   outline: none;
   line-height: 24px;
   transition: border-bottom-color 0.3s ease;
+  width: 40%;
 }
 
 .input-modal-options input:focus {
   border-bottom-color: rgb(255, 255, 255);
+}
+
+.input-modal-options select {
+  background-color: var(--accent-button);
+  color: var(--text-color);
+  border: 1px solid var(--disabled);
+  border-radius: 5px;
+  padding: 0.4rem;
+  width: 40%;
+}
+
+.input-modal-options select:focus {
+  outline: none;
+  border-color: var(--selected-hover);
 }

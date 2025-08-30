@@ -21,16 +21,15 @@ from upstash_redis.errors import UpstashError
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-# --- Constants ---
 MAX_RESPONSE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
 STREAM_CHUNK_SIZE = 512 * 1024
 MAX_DOWNLOAD_FILESIZE = "200M"
-API_PREFIX = "/api/ytdl"
+PREFIX = "/api/ytdl"
 RESPONSE_CACHE_TTL_SECONDS = 7200
 URL_CACHE_TTL_SECONDS = 1800
+CHANGELOG_CACHE_TTL_SECONDS = 3600
 
-# --- Initialization & Configuration ---
 load_dotenv()
 load_dotenv(find_dotenv(".env.local"))
 
@@ -48,6 +47,8 @@ app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
 
 app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
 app.config["KV_REST_API_TOKEN"] = os.getenv("KV_REST_API_TOKEN", "")
+app.config["GITHUB_REPO"] = os.getenv("GITHUB_REPO", "")
+app.config["GITHUB_TOKEN"] = os.getenv("GITHUB_TOKEN", "")
 app.config["YTDL_OPTS"] = {
     "color": "no_color",
     "outtmpl": r"downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s",
@@ -66,7 +67,6 @@ app.config["YTDL_OPTS"] = {
     },
 }
 
-# --- Redis & Cookie IO Setup ---
 try:
     redis_client = Redis(
         url=app.config["KV_REST_API_URL"],
@@ -114,7 +114,6 @@ cookies_io = CookiesIOWrapper(redis_client)
 app.config["YTDL_OPTS"]["cookiefile"] = cookies_io
 
 
-# --- Template Globals & Utils ---
 @app.template_global("classlist")
 class ClassList(MutableSet):
     def __init__(self, arg: str | Iterable | None = None, *args: str):
@@ -191,7 +190,61 @@ def create_error_response(
     return jsonify({"success": False, "error": message}), code
 
 
-# --- Request Hooks & Routes ---
+def get_changelog_data():
+    if (
+        not redis_client
+        or not app.config["GITHUB_REPO"]
+        or not app.config["GITHUB_TOKEN"]
+    ):
+        app.logger.warning("Changelog disabled due to missing Redis or GitHub config.")
+        return []
+
+    cache_key = "ytdl:changelog"
+    try:
+        cached_changelog = redis_client.get(cache_key)
+        if cached_changelog:
+            app.logger.info("Changelog HIT from cache.")
+            return json.loads(cached_changelog)
+    except UpstashError as e:
+        app.logger.error(f"Redis changelog check failed: {e}.")
+
+    app.logger.info("Changelog MISS from cache. Fetching from GitHub API.")
+    headers = {
+        "Authorization": f"token {app.config['GITHUB_TOKEN']}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    url = f"https://api.github.com/repos/{app.config['GITHUB_REPO']}/pulls?state=closed&sort=updated&direction=desc&per_page=10"
+    app.logger.info(f"Fetching changelog from URL: {url}")
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        prs = response.json()
+
+        changelog = []
+        for pr in prs:
+            if pr.get("merged_at"):
+                user_obj = pr.get("user", {})
+                changelog.append(
+                    {
+                        "title": pr.get("title", "No Title"),
+                        "url": pr.get("html_url", "#"),
+                        "merged_at": pr.get("merged_at", "").split("T")[0],
+                        "user": user_obj.get("login", "unknown"),
+                        "user_url": user_obj.get("html_url", "#"),
+                    }
+                )
+
+        redis_client.set(
+            cache_key, json.dumps(changelog), ex=CHANGELOG_CACHE_TTL_SECONDS
+        )
+        app.logger.info("Successfully fetched and cached changelog from GitHub.")
+        return changelog
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Failed to fetch changelog from GitHub: {e}")
+        return []
+
+
 @app.before_request
 def log_request_info():
     app.logger.info(f"Request: {request.method} {request.path}")
@@ -199,12 +252,13 @@ def log_request_info():
         app.logger.info(f"Request JSON payload: {request.get_json()}")
 
 
-@app.route(API_PREFIX + "/")
+@app.route(PREFIX + "/")
 def index():
-    return render_template("index.jinja2")
+    changelog_data = get_changelog_data()
+    return render_template("index.jinja2", changelog=changelog_data)
 
 
-@app.route(API_PREFIX + "/check", methods=["POST"])
+@app.route(PREFIX + "/check", methods=["POST"])
 def check():
     data = cast(dict | None, request.get_json(silent=True))
     if not data:
@@ -216,9 +270,7 @@ def check():
     cache_key = None
     if redis_client:
         try:
-            cache_key = (
-                f"ytdl:cache:{query}:{data.get('type')}:{data.get('has_ffmpeg')}"
-            )
+            cache_key = f"ytdl:cache:{query}:{data.get('type')}:{data.get('has_ffmpeg')}:{data.get('format')}"
             cached_response = redis_client.get(cache_key)
             if cached_response and isinstance(cached_response, str):
                 app.logger.info(f"Cache HIT for key: {cache_key}")
@@ -255,7 +307,7 @@ def check():
         "ext": info.get("ext", "bin"),
     }
 
-    if str_to_bool(data.get("has_ffmpeg", False)) and "requested_formats" in info:
+    if "requested_formats" in info:
         ret_data["needFFmpeg"] = True
         req_formats = []
         for i in info.get("requested_formats", []):
@@ -268,7 +320,7 @@ def check():
                     "ext": i["ext"],
                     "formatId": i.get("format_id", "0"),
                     "fileSizeApprox": i.get("filesize_approx", 0),
-                    "isPart": True,  # Always true to force client-side chunking logic
+                    "isPart": True,
                     "type": "audio" if i.get("audio_channels") else "video",
                 }
             )
@@ -279,13 +331,24 @@ def check():
             return create_error_response(
                 "No downloadable URL found for the selected format.", 404
             )
+
         uid = uuid.uuid4().hex[:12]
         if redis_client:
             redis_client.set(f"ytdl:url:{uid}", url, ex=URL_CACHE_TTL_SECONDS)
-
         ret_data["id"] = uid
         ret_data["isPart"] = True
         ret_data["fileSizeApprox"] = info.get("filesize_approx", 0)
+
+        if data.get("type") == "audio":
+            target_ext = data.get("format")
+            actual_ext = info.get("ext")
+            if target_ext and target_ext != "custom" and target_ext != actual_ext:
+                ret_data["needsConversion"] = True
+                ret_data["ext"] = target_ext
+                ret_data["sourceExt"] = actual_ext
+                app.logger.info(
+                    f"Audio conversion needed: from '{actual_ext}' to '{target_ext}'"
+                )
 
     if redis_client and cache_key:
         try:
@@ -299,27 +362,22 @@ def check():
     return jsonify(ret_data)
 
 
-@app.route(API_PREFIX + "/download")
+@app.route(PREFIX + "/download")
 def download():
     uid = request.args.get("id")
     if not uid:
         return create_error_response("Missing required argument: id", 400)
-
     url = None
     if redis_client:
         try:
             url = redis_client.get(f"ytdl:url:{uid}")
         except UpstashError as e:
             return create_error_response("Failed to connect to cache.", 500, exc=e)
-
     if not url:
         return create_error_response(
             "Download link expired or invalid. Please try again.", 410
         )
-
-    range_header = request.headers.get(
-        "Range", "bytes=0-"
-    )  # Default to the first chunk if no header is present
+    range_header = request.headers.get("Range", "bytes=0-")
     app.logger.info(f"Handling range request for id '{uid}' with range: {range_header}")
     return _range_download_handler(url, range_header)
 
@@ -327,19 +385,22 @@ def download():
 def _build_check_format_string(
     req_type: str, has_ffmpeg: bool, custom_format: str
 ) -> str:
-    if req_type == "video":
-        if has_ffmpeg:
-            format_str = f"{custom_format}/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]/b"
+    final_format = custom_format
+    if not final_format or final_format == "custom":
+        if req_type == "video":
+            if has_ffmpeg:
+                final_format = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]/b"
+            else:
+                final_format = "best*[vcodec!=none][acodec!=none][height<=1080]"
+        elif req_type == "audio":
+            final_format = "bestaudio"
         else:
-            format_str = (
-                f"{custom_format}/best*[vcodec!=none][acodec!=none][height<=1080]"
-            )
+            raise ValueError("Invalid type specified for format string.")
+
     elif req_type == "audio":
-        format_str = f"{custom_format}/bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio"
-    else:
-        raise ValueError("Invalid type specified for format string.")
-    format_str = format_str.lstrip("/")
-    return f"({format_str}/best)[protocol^=http][protocol!*=dash][filesize<={MAX_DOWNLOAD_FILESIZE}]"
+        final_format = f"bestaudio[ext={custom_format}]/bestaudio"
+
+    return f"({final_format}/best)[protocol^=http][protocol!*=dash][filesize<={MAX_DOWNLOAD_FILESIZE}]"
 
 
 def _range_download_handler(url: str, range_header: str):

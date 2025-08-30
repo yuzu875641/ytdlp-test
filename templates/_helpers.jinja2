@@ -17,7 +17,7 @@
   {% endif %}
 
   <div class="{{ classes }}" {{ kwargs|xmlattr }}>
-    {% if title %}<p>{{ title }}</p>{% endif %}
+    {% if title %}<p class="modal-title">{{ title }}</p>{% endif %}
     <div style="width: {{ content_width }};" class="modal-content">{{ caller() }}</div>
     {{ button('close', className='js-modal-close') }}
   </div>
@@ -61,5 +61,22 @@
       {% endfor %}
     </div>
     <div class="tab-content">{{ caller() }}</div>
+  </div>
+{% endmacro %}
+
+
+{% macro select_modal_options(title='', input_id='', presets=[]) %}
+  <div class="input-modal-options">
+    <div class="input-modal-left">
+      <div class="input-modal-title">{{ title }}</div>
+      <div class="input-modal-description" id="{{ input_id }}-desc">
+        {{ presets[0].description if presets else 'Select an option' }}
+      </div>
+    </div>
+    <select id="{{ input_id }}" {{ kwargs|xmlattr }}>
+      {% for preset in presets %}
+        <option value="{{ preset.value }}" data-desc="{{ preset.description }}">{{ preset.title }}</option>
+      {% endfor %}
+    </select>
   </div>
 {% endmacro %}

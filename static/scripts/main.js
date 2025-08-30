@@ -70,7 +70,7 @@ function saveAs(blob, filename) {
 }
 
 function sanitizeFilename(name) {
-  const sanitized = name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+  const sanitized = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, "");
   if (sanitized !== name)
     Logger.log(`Sanitized filename from "${name}" to "${sanitized}"`);
   return sanitized;
@@ -89,12 +89,19 @@ const YtdlApp = {
     videoSwitch: null,
     audioSwitch: null,
     useFfmpeg: null,
-    ytdlFormat: null,
+    ytdlFormatVideo: null,
+    ytdlFormatAudio: null,
+    ytdlFormatCustom: null,
+    formatSelectorVideo: null,
+    formatSelectorAudio: null,
+    customFormatInputWrapper: null,
   },
   state: {
     isDownloading: false,
     useFfmpeg: false,
-    ytdlFormat: "",
+    ytdlFormatVideo: "",
+    ytdlFormatAudio: "",
+    ytdlFormatCustom: "",
   },
 
   init() {
@@ -107,8 +114,18 @@ const YtdlApp = {
       videoSwitch: document.getElementById("video-switch"),
       audioSwitch: document.getElementById("audio-switch"),
       useFfmpeg: document.getElementById("use-ffmpeg"),
-      ytdlFormat: document.getElementById("ytdl-fsl"),
+      ytdlFormatVideo: document.getElementById("ytdl-fsl-video"),
+      ytdlFormatAudio: document.getElementById("ytdl-fsl-audio"),
+      ytdlFormatCustom: document.getElementById("ytdl-fsl-custom"),
+      formatSelectorVideo: document.getElementById("format-selector-video"),
+      formatSelectorAudio: document.getElementById("format-selector-audio"),
+      customFormatInputWrapper: document.getElementById(
+        "custom-format-input-wrapper"
+      ),
     });
+
+    this.state.ytdlFormatVideo = this.ui.ytdlFormatVideo.value;
+    this.state.ytdlFormatAudio = this.ui.ytdlFormatAudio.value;
 
     this.ui.downloadButton.addEventListener("click", () => this.handleSubmit());
     this.ui.urlInput.addEventListener("input", () => this.checkInput());
@@ -140,9 +157,24 @@ const YtdlApp = {
       this.state.useFfmpeg = e.target.checked;
       Logger.info(`State updated: useFfmpeg is now ${this.state.useFfmpeg}`);
     });
-    this.ui.ytdlFormat.addEventListener("input", (e) => {
-      this.state.ytdlFormat = e.target.value;
-      Logger.log(`State updated: ytdlFormat is now "${this.state.ytdlFormat}"`);
+
+    const setupFormatListener = (selectElement, stateKey) => {
+      selectElement.addEventListener("change", (e) => {
+        const selectedOption = e.target.options[e.target.selectedIndex];
+        this.state[stateKey] = e.target.value;
+        document.getElementById(`${e.target.id}-desc`).textContent =
+          selectedOption.getAttribute("data-desc");
+        this._updateCustomFormatVisibility();
+        Logger.log(
+          `State updated: ${stateKey} is now "${this.state[stateKey]}"`
+        );
+      });
+    };
+    setupFormatListener(this.ui.ytdlFormatVideo, "ytdlFormatVideo");
+    setupFormatListener(this.ui.ytdlFormatAudio, "ytdlFormatAudio");
+
+    this.ui.ytdlFormatCustom.addEventListener("input", (e) => {
+      this.state.ytdlFormatCustom = e.target.value;
     });
 
     document.querySelectorAll(".tabs-container").forEach((tabsContainer) => {
@@ -221,11 +253,20 @@ const YtdlApp = {
     Logger.log(`Starting to process URL: ${url}`);
     await this.updateDownloadText("checking...");
 
+    const downloadType = this.ui.avWrapper.getAttribute("data-value");
+    let formatString =
+      downloadType === "video"
+        ? this.state.ytdlFormatVideo
+        : this.state.ytdlFormatAudio;
+    if (formatString === "custom") {
+      formatString = this.state.ytdlFormatCustom;
+    }
+
     const checkPayload = {
       query: url,
-      type: this.ui.avWrapper.getAttribute("data-value"),
+      type: downloadType,
       has_ffmpeg: this.state.useFfmpeg,
-      format: this.state.ytdlFormat,
+      format: formatString,
     };
     Logger.log(
       "Sending request to /check endpoint with payload:",
@@ -248,6 +289,10 @@ const YtdlApp = {
       Logger.info("Path selected: FFmpeg remuxing.");
       if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
       await this.ffmpegDownload(data);
+    } else if (data.needsConversion) {
+      Logger.info("Path selected: Audio conversion.");
+      if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
+      await this.convertAudio(data);
     } else {
       const sanitizedFilename = sanitizeFilename(`${data.title}.${data.ext}`);
       Logger.info("Path selected: Ranged download.");
@@ -316,6 +361,46 @@ const YtdlApp = {
     return blob;
   },
 
+  async convertAudio(data) {
+    Logger.info("Starting audio conversion process.");
+    const ffmpeg = window.WP_ffmpeg;
+    const inputFilename = `input.${data.sourceExt}`;
+    const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
+
+    try {
+      const fileBlob = await this._fetchFile(data);
+      const fileBuffer = await fileBlob.arrayBuffer();
+
+      Logger.log(`Writing source audio to virtual FS as "${inputFilename}"`);
+      await ffmpeg.writeFile(inputFilename, new Uint8Array(fileBuffer));
+
+      await this.updateDownloadText(`converting to ${data.ext}...`);
+      const execParams = ["-i", inputFilename, outputFilename];
+      Logger.info(
+        "Executing FFmpeg command:",
+        `ffmpeg ${execParams.join(" ")}`
+      );
+      await ffmpeg.exec(execParams);
+      Logger.info("FFmpeg conversion complete.");
+
+      const convertedData = await ffmpeg.readFile(outputFilename);
+      Logger.log(
+        `Reading converted file from virtual FS. Size: ${convertedData.length}`
+      );
+      const blob = new Blob([convertedData], { type: `audio/${data.ext}` });
+      saveAs(blob, outputFilename);
+    } finally {
+      await this.updateDownloadText(`cleaning up...`);
+      try {
+        await ffmpeg.deleteFile(inputFilename);
+        await ffmpeg.deleteFile(outputFilename);
+        Logger.log("Cleaned up FFmpeg virtual files.");
+      } catch (e) {
+        Logger.warn(`Could not delete temp files`, e);
+      }
+    }
+  },
+
   async ffmpegDownload(data) {
     Logger.info("Starting FFmpeg download process.");
     const ffmpeg = window.WP_ffmpeg;
@@ -372,7 +457,7 @@ const YtdlApp = {
       await ffmpeg.exec(execParams);
       Logger.info("FFmpeg execution complete.");
 
-      const mergedData = await ffmpeg.readFile(safeOutputName);
+      const mergedData = await ffmpeg.readFile(outputFilename);
       Logger.log(
         `Reading merged file from virtual FS. Size: ${mergedData.length}`
       );
@@ -399,6 +484,31 @@ const YtdlApp = {
     else this.ui.downloadButton.classList.add("disabled");
   },
 
+  _updateFormatSelectorVisibility() {
+    const downloadType = this.ui.avWrapper.getAttribute("data-value");
+    if (downloadType === "video") {
+      this.ui.formatSelectorVideo.classList.remove("hidden-by-js");
+      this.ui.formatSelectorAudio.classList.add("hidden-by-js");
+    } else {
+      this.ui.formatSelectorVideo.classList.add("hidden-by-js");
+      this.ui.formatSelectorAudio.classList.remove("hidden-by-js");
+    }
+    this._updateCustomFormatVisibility();
+  },
+
+  _updateCustomFormatVisibility() {
+    const downloadType = this.ui.avWrapper.getAttribute("data-value");
+    const currentFormat =
+      downloadType === "video"
+        ? this.state.ytdlFormatVideo
+        : this.state.ytdlFormatAudio;
+    if (currentFormat === "custom") {
+      this.ui.customFormatInputWrapper.classList.remove("hidden-by-js");
+    } else {
+      this.ui.customFormatInputWrapper.classList.add("hidden-by-js");
+    }
+  },
+
   setDownloadType(type) {
     Logger.log(`Setting download type to: ${type}`);
     this.ui.avWrapper.setAttribute("data-value", type);
@@ -409,6 +519,7 @@ const YtdlApp = {
       this.ui.audioSwitch.classList.add("selected");
       this.ui.videoSwitch.classList.remove("selected");
     }
+    this._updateFormatSelectorVisibility();
   },
 };
 

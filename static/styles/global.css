@@ -238,10 +238,10 @@ button-component.disabled {
 }
 
 .about-content h2 {
+  font-size: 1.2rem;
   margin-top: 1rem;
   margin-bottom: 0.5rem;
   color: var(--text-color);
-  font-weight: bold;
 }
 
 .about-content p {
@@ -256,21 +256,44 @@ button-component.disabled {
 }
 
 .changelog-list {
-  font-size: 0.9rem;
   list-style: none;
   padding-left: 0;
+  max-height: 200px;
+  overflow-y: visible;
 }
 
 .changelog-list li {
-  margin-bottom: 0.75rem;
-  color: var(--disabled-text);
+  margin-bottom: 1rem;
+}
+
+.changelog-list li a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.changelog-list li span a {
+  color: #ff3434;
 }
 
 .changelog-list li strong {
   color: var(--text-color);
   display: block;
+  font-weight: normal;
+  transition: color 0.2s;
 }
 
+.changelog-list li a:hover strong {
+  color: var(--selected);
+}
+
+.changelog-list li span {
+  font-size: 0.8rem;
+  color: var(--disabled-text);
+}
+
+.hidden-by-js {
+  display: none !important;
+}
 
 @media (min-width: 768px) {
   #main-toolbox {
