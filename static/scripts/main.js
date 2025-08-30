@@ -437,8 +437,8 @@ const YtdlApp = {
         "All streams have been downloaded and written to the virtual FS."
       );
       await this.updateDownloadText("merging...");
-      const safeOutputName = sanitizeFilename(`${data.title}.${data.ext}`);
-      filesToDelete.push(safeOutputName);
+      const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
+      filesToDelete.push(outputFilename);
       const execParams = [
         "-i",
         remuxParams.videoName,
@@ -448,7 +448,7 @@ const YtdlApp = {
         "copy",
         "-c:a",
         "copy",
-        safeOutputName,
+        outputFilename,
       ];
       Logger.info(
         "Executing FFmpeg command:",
@@ -462,7 +462,7 @@ const YtdlApp = {
         `Reading merged file from virtual FS. Size: ${mergedData.length}`
       );
       const blob = new Blob([mergedData], { type: `video/${data.ext}` });
-      saveAs(blob, safeOutputName);
+      saveAs(blob, outputFilename);
     } finally {
       await this.updateDownloadText(`cleaning up...`);
       Logger.log("Cleaning up FFmpeg virtual files:", filesToDelete);
