@@ -89,12 +89,19 @@ const YtdlApp = {
     videoSwitch: null,
     audioSwitch: null,
     useFfmpeg: null,
-    ytdlFormat: null,
+    ytdlFormatVideo: null,
+    ytdlFormatAudio: null,
+    ytdlFormatCustom: null,
+    formatSelectorVideo: null,
+    formatSelectorAudio: null,
+    customFormatInputWrapper: null,
   },
   state: {
     isDownloading: false,
     useFfmpeg: false,
-    ytdlFormat: "",
+    ytdlFormatVideo: "",
+    ytdlFormatAudio: "",
+    ytdlFormatCustom: "",
   },
 
   init() {
@@ -107,8 +114,18 @@ const YtdlApp = {
       videoSwitch: document.getElementById("video-switch"),
       audioSwitch: document.getElementById("audio-switch"),
       useFfmpeg: document.getElementById("use-ffmpeg"),
-      ytdlFormat: document.getElementById("ytdl-fsl"),
+      ytdlFormatVideo: document.getElementById("ytdl-fsl-video"),
+      ytdlFormatAudio: document.getElementById("ytdl-fsl-audio"),
+      ytdlFormatCustom: document.getElementById("ytdl-fsl-custom"),
+      formatSelectorVideo: document.getElementById("format-selector-video"),
+      formatSelectorAudio: document.getElementById("format-selector-audio"),
+      customFormatInputWrapper: document.getElementById(
+        "custom-format-input-wrapper"
+      ),
     });
+
+    this.state.ytdlFormatVideo = this.ui.ytdlFormatVideo.value;
+    this.state.ytdlFormatAudio = this.ui.ytdlFormatAudio.value;
 
     this.ui.downloadButton.addEventListener("click", () => this.handleSubmit());
     this.ui.urlInput.addEventListener("input", () => this.checkInput());
@@ -140,9 +157,24 @@ const YtdlApp = {
       this.state.useFfmpeg = e.target.checked;
       Logger.info(`State updated: useFfmpeg is now ${this.state.useFfmpeg}`);
     });
-    this.ui.ytdlFormat.addEventListener("input", (e) => {
-      this.state.ytdlFormat = e.target.value;
-      Logger.log(`State updated: ytdlFormat is now "${this.state.ytdlFormat}"`);
+
+    const setupFormatListener = (selectElement, stateKey) => {
+      selectElement.addEventListener("change", (e) => {
+        const selectedOption = e.target.options[e.target.selectedIndex];
+        this.state[stateKey] = e.target.value;
+        document.getElementById(`${e.target.id}-desc`).textContent =
+          selectedOption.getAttribute("data-desc");
+        this._updateCustomFormatVisibility();
+        Logger.log(
+          `State updated: ${stateKey} is now "${this.state[stateKey]}"`
+        );
+      });
+    };
+    setupFormatListener(this.ui.ytdlFormatVideo, "ytdlFormatVideo");
+    setupFormatListener(this.ui.ytdlFormatAudio, "ytdlFormatAudio");
+
+    this.ui.ytdlFormatCustom.addEventListener("input", (e) => {
+      this.state.ytdlFormatCustom = e.target.value;
     });
 
     document.querySelectorAll(".tabs-container").forEach((tabsContainer) => {
@@ -221,11 +253,20 @@ const YtdlApp = {
     Logger.log(`Starting to process URL: ${url}`);
     await this.updateDownloadText("checking...");
 
+    const downloadType = this.ui.avWrapper.getAttribute("data-value");
+    let formatString =
+      downloadType === "video"
+        ? this.state.ytdlFormatVideo
+        : this.state.ytdlFormatAudio;
+    if (formatString === "custom") {
+      formatString = this.state.ytdlFormatCustom;
+    }
+
     const checkPayload = {
       query: url,
-      type: this.ui.avWrapper.getAttribute("data-value"),
+      type: downloadType,
       has_ffmpeg: this.state.useFfmpeg,
-      format: this.state.ytdlFormat,
+      format: formatString,
     };
     Logger.log(
       "Sending request to /check endpoint with payload:",
@@ -399,6 +440,31 @@ const YtdlApp = {
     else this.ui.downloadButton.classList.add("disabled");
   },
 
+  _updateFormatSelectorVisibility() {
+    const downloadType = this.ui.avWrapper.getAttribute("data-value");
+    if (downloadType === "video") {
+      this.ui.formatSelectorVideo.classList.remove("hidden-by-js");
+      this.ui.formatSelectorAudio.classList.add("hidden-by-js");
+    } else {
+      this.ui.formatSelectorVideo.classList.add("hidden-by-js");
+      this.ui.formatSelectorAudio.classList.remove("hidden-by-js");
+    }
+    this._updateCustomFormatVisibility();
+  },
+
+  _updateCustomFormatVisibility() {
+    const downloadType = this.ui.avWrapper.getAttribute("data-value");
+    const currentFormat =
+      downloadType === "video"
+        ? this.state.ytdlFormatVideo
+        : this.state.ytdlFormatAudio;
+    if (currentFormat === "custom") {
+      this.ui.customFormatInputWrapper.classList.remove("hidden-by-js");
+    } else {
+      this.ui.customFormatInputWrapper.classList.add("hidden-by-js");
+    }
+  },
+
   setDownloadType(type) {
     Logger.log(`Setting download type to: ${type}`);
     this.ui.avWrapper.setAttribute("data-value", type);
@@ -409,6 +475,7 @@ const YtdlApp = {
       this.ui.audioSwitch.classList.add("selected");
       this.ui.videoSwitch.classList.remove("selected");
     }
+    this._updateFormatSelectorVisibility();
   },
 };
 

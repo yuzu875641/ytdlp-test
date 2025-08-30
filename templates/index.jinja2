@@ -1,4 +1,4 @@
-{% from '_helpers.jinja2' import button, modal, toggle_modal_options, input_modal_options, tabs with context %}
+{% from '_helpers.jinja2' import button, modal, toggle_modal_options, input_modal_options, tabs, select_modal_options with context %}
 
 <!DOCTYPE html>
 <html lang="en">
@@ -46,49 +46,91 @@
     {% call modal('settings', visible=False, id='settings-modal', content_width='45%') %}
       {% call tabs('settings-tabs', ['yt-dlp', 'FFmpeg']) %}
         <div class="tab-pane active">
-          {{ input_modal_options(title='yt-dlp format selection', input_id='ytdl-fsl', description='You can check out yt-dlp documentation for more info') }}
+          {% set video_presets = [
+            {
+              "title": "Auto (1080p + Audio)",
+              "value": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]/b",
+              "description": "Recommended. Best video up to 1080p and best audio, requires FFmpeg."
+            },
+            {
+              "title": "Auto (Best Combined)",
+              "value": "best*[vcodec!=none][acodec!=none][height<=1080]",
+              "description": "Best format with both video and audio. Does not require FFmpeg."
+            },
+            {
+              "title": "MP4 (Video Only)",
+              "value": "bestvideo[ext=mp4]",
+              "description": "Highest quality MP4 video stream, likely no audio."
+            },
+            {
+              "title": "Custom",
+              "value": "custom",
+              "description": "Use a custom format string entered below."
+            }
+          ] %} {% set audio_presets = [
+   {
+     "title": "Auto (Best Quality)",
+     "value": "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
+     "description": "Recommended. Selects the best quality audio stream available."
+   },
+   {
+     "title": "Best MP3",
+     "value": "bestaudio[ext=mp3]",
+     "description": "Highest quality MP3 stream available."
+   },
+   {
+     "title": "Best M4A",
+     "value": "bestaudio[ext=m4a]",
+     "description": "Highest quality M4A/AAC stream available."
+   },
+   {
+     "title": "Custom",
+     "value": "custom",
+     "description": "Use a custom format string entered below."
+   }
+ ] %}
+        <div id="format-selector-video">
+          {{ select_modal_options(title='Video Presets', input_id='ytdl-fsl-video', presets=video_presets) }}
         </div>
-        <div class="tab-pane">
-          {{ toggle_modal_options(title='Use FFmpeg', input_id='use-ffmpeg', description='If enabled, allows merging separate video and audio streams for higher quality. Requires a bit more processing time.') }}
+        <div id="format-selector-audio" class="hidden-by-js">
+          {{ select_modal_options(title='Audio Presets', input_id='ytdl-fsl-audio', presets=audio_presets) }}
         </div>
-      {% endcall %}
-    {% endcall %}
-
-    {% call modal('about', visible=True, id='about-modal') %}
-      <div class="about-content">
-        <h2>What is this thing?</h2>
-        <p>
-          So, you've stumbled upon this digital marvel. What does it do? Simple. It takes those pesky video URLs you throw at it and, through a series of questionable digital gymnastics and server-side sorcery, spits out a downloadable file. It's like a vending machine, but for pixels and sound waves. We bravely proxy your request, wrestle the file from the internet's grasp, and deliver it to you, all without you having to lift more than a finger. Magic? No. Just a whole lot of code and a sprinkle of optimism.
-        </p>
-        <hr>
-        <h2>Changelog</h2>
-        <ul class="changelog-list">
-          <li>
-            <strong>The "Make it Work" Update:</strong> It, you know, works. You can download things.
-          </li>
-          <li>
-            <strong>The "Stop Waiting So Long" Update:</strong> Implemented caching and concurrent downloads, so you can get your files twice as fast without aging a decade.
-          </li>
-          <li>
-            <strong>The "What's in the Box?" Update:</strong> Added a whole bunch of logging so even we can figure out what's going on when it breaks.
-          </li>
-          <li>
-            <strong>The "Secret Handshake" Update:</strong> Switched to a secure UID system for download links. Much safer, much cooler.
-          </li>
-          <li>
-            <strong>The "One Size Fits All" Update:</strong> Made the interface responsive. It now looks questionable on your phone, too!
-          </li>
-          <li>
-            <strong>The "Clicky Tabs" Update:</strong> Added these fancy tabs to the settings modal. Peak web design.
-          </li>
-        </ul>
+        <div id="custom-format-input-wrapper" class="hidden-by-js">
+          {{ input_modal_options(title='Custom Format', input_id='ytdl-fsl-custom', description='Enter a custom yt-dlp format string.') }}
+        </div>
+      </div>
+      <div class="tab-pane">
+        {{ toggle_modal_options(title='Use FFmpeg', input_id='use-ffmpeg', description='If enabled, allows merging separate video and audio streams for higher quality. Requires a bit more processing time.') }}
       </div>
     {% endcall %}
 
-    <footer>
-      {{ button('about', id='open-about-modal', outline=True) }}
-      {{ button('donate', id='open-donate-modal', outline=True) }}
-      {{ button('settings', id='open-settings-modal', outline=True) }}
-    </footer>
-  </body>
+  {% endcall %}
+
+  {% call modal('about', visible=False, id='about-modal') %}
+    <div class="about-content">
+      <h2>What is this thing?</h2>
+      <p>
+        So, you've stumbled upon this digital marvel. What does it do? Simple. It takes those pesky video URLs you throw at it and, through a series of questionable digital gymnastics and server-side sorcery, spits out a downloadable file. It's like a vending machine, but for pixels and sound waves. We bravely proxy your request, wrestle the file from the internet's grasp, and deliver it to you, all without you having to lift more than a finger. Magic? No. Just a whole lot of code and a sprinkle of optimism.
+      </p>
+      <hr>
+      <h2>Changelog</h2>
+      <ul class="changelog-list">
+        {% for pr in changelog %}
+          <li>
+            <strong><a href="{{ pr.url }}" target="_blank" rel="noopener noreferrer">{{ pr.title }}</a></strong>
+            <span>Merged on {{ pr.merged_at }} by <a href="{{ pr.user_url }}" target="_blank" rel="noopener noreferrer">{{ pr.user }}</a></span>
+          </li>
+        {% else %}
+          <li>Could not load recent changes. Probably for the best.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endcall %}
+
+  <footer>
+    {{ button('about', id='open-about-modal', outline=True) }}
+    {{ button('donate', id='open-donate-modal', outline=True) }}
+    {{ button('settings', id='open-settings-modal', outline=True) }}
+  </footer>
+</body>
 </html>
