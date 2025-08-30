@@ -291,20 +291,6 @@ button-component.disabled {
   color: var(--disabled-text);
 }
 
-.input-modal-options select {
-  background-color: var(--accent-button);
-  color: var(--text-color);
-  border: 1px solid var(--disabled);
-  border-radius: 5px;
-  padding: 0.4rem;
-  width: 40%;
-}
-
-.input-modal-options select:focus {
-  outline: none;
-  border-color: var(--selected-hover);
-}
-
 .hidden-by-js {
   display: none !important;
 }

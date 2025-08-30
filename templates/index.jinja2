@@ -67,70 +67,73 @@
               "value": "custom",
               "description": "Use a custom format string entered below."
             }
-          ] %} {% set audio_presets = [
-   {
-     "title": "Auto (Best Quality)",
-     "value": "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
-     "description": "Recommended. Selects the best quality audio stream available."
-   },
-   {
-     "title": "Best MP3",
-     "value": "bestaudio[ext=mp3]",
-     "description": "Highest quality MP3 stream available."
-   },
-   {
-     "title": "Best M4A",
-     "value": "bestaudio[ext=m4a]",
-     "description": "Highest quality M4A/AAC stream available."
-   },
-   {
-     "title": "Custom",
-     "value": "custom",
-     "description": "Use a custom format string entered below."
-   }
- ] %}
-        <div id="format-selector-video">
-          {{ select_modal_options(title='Video Presets', input_id='ytdl-fsl-video', presets=video_presets) }}
+          ] %}
+          {% set audio_presets = [
+            {
+              "title": "Best Quality (M4A)",
+              "value": "m4a",
+              "description": "Highest quality AAC audio. Great for Apple devices."
+            },
+            {
+              "title": "High Compatibility (MP3)",
+              "value": "mp3",
+              "description": "Good quality, compatible with almost everything. Requires conversion if not available."
+            },
+            {
+              "title": "Best Quality (Opus)",
+              "value": "opus",
+              "description": "Excellent quality in a modern format. Requires conversion if not available."
+            },
+            {
+              "title": "Custom",
+              "value": "custom",
+              "description": "Use a custom format string entered below."
+            }
+          ] %}
+          <div id="format-selector-video">
+            {{ select_modal_options(title='Video Presets', input_id='ytdl-fsl-video', presets=video_presets) }}
+          </div>
+          <div id="format-selector-audio" class="hidden-by-js">
+            {{ select_modal_options(title='Audio Presets', input_id='ytdl-fsl-audio', presets=audio_presets) }}
+          </div>
+          <div id="custom-format-input-wrapper" class="hidden-by-js">
+            {{ input_modal_options(title='Custom Format', input_id='ytdl-fsl-custom', description='Enter a custom yt-dlp format string.') }}
+          </div>
         </div>
-        <div id="format-selector-audio" class="hidden-by-js">
-          {{ select_modal_options(title='Audio Presets', input_id='ytdl-fsl-audio', presets=audio_presets) }}
+        <div class="tab-pane">
+          {{ toggle_modal_options(title='Use FFmpeg', input_id='use-ffmpeg', description='If enabled, allows merging separate video and audio streams for higher quality. Requires a bit more processing time.') }}
         </div>
-        <div id="custom-format-input-wrapper" class="hidden-by-js">
-          {{ input_modal_options(title='Custom Format', input_id='ytdl-fsl-custom', description='Enter a custom yt-dlp format string.') }}
-        </div>
-      </div>
-      <div class="tab-pane">
-        {{ toggle_modal_options(title='Use FFmpeg', input_id='use-ffmpeg', description='If enabled, allows merging separate video and audio streams for higher quality. Requires a bit more processing time.') }}
+      {% endcall %}
+
+    {% endcall %}
+
+    {% call modal('about', visible=False, id='about-modal') %}
+      <div class="about-content">
+        <h2>What is this thing?</h2>
+        <p>
+          So, you've stumbled upon this digital marvel. What does it do? Simple. It takes those pesky video URLs you throw at it and, through a series of questionable digital gymnastics and server-side sorcery, spits out a downloadable file. It's like a vending machine, but for pixels and sound waves. We bravely proxy your request, wrestle the file from the internet's grasp, and deliver it to you, all without you having to lift more than a finger. Magic? No. Just a whole lot of code and a sprinkle of optimism.
+        </p>
+        <hr>
+        <h2>Changelog</h2>
+        <ul class="changelog-list">
+          {% for pr in changelog %}
+            <li>
+              <a href="{{ pr.url }}" target="_blank" rel="noopener noreferrer">
+                <strong>{{ pr.title }}</strong>
+              </a>
+              <span>Merged on {{ pr.merged_at }} by <a href="{{ pr.user_url }}" target="_blank" rel="noopener noreferrer">{{ pr.user }}</a></span>
+            </li>
+          {% else %}
+            <li>Could not load recent changes. Probably for the best.</li>
+          {% endfor %}
+        </ul>
       </div>
     {% endcall %}
 
-  {% endcall %}
-
-  {% call modal('about', visible=False, id='about-modal') %}
-    <div class="about-content">
-      <h2>What is this thing?</h2>
-      <p>
-        So, you've stumbled upon this digital marvel. What does it do? Simple. It takes those pesky video URLs you throw at it and, through a series of questionable digital gymnastics and server-side sorcery, spits out a downloadable file. It's like a vending machine, but for pixels and sound waves. We bravely proxy your request, wrestle the file from the internet's grasp, and deliver it to you, all without you having to lift more than a finger. Magic? No. Just a whole lot of code and a sprinkle of optimism.
-      </p>
-      <hr>
-      <h2>Changelog</h2>
-      <ul class="changelog-list">
-        {% for pr in changelog %}
-          <li>
-            <strong><a href="{{ pr.url }}" target="_blank" rel="noopener noreferrer">{{ pr.title }}</a></strong>
-            <span>Merged on {{ pr.merged_at }} by <a href="{{ pr.user_url }}" target="_blank" rel="noopener noreferrer">{{ pr.user }}</a></span>
-          </li>
-        {% else %}
-          <li>Could not load recent changes. Probably for the best.</li>
-        {% endfor %}
-      </ul>
-    </div>
-  {% endcall %}
-
-  <footer>
-    {{ button('about', id='open-about-modal', outline=True) }}
-    {{ button('donate', id='open-donate-modal', outline=True) }}
-    {{ button('settings', id='open-settings-modal', outline=True) }}
-  </footer>
-</body>
+    <footer>
+      {{ button('about', id='open-about-modal', outline=True) }}
+      {{ button('donate', id='open-donate-modal', outline=True) }}
+      {{ button('settings', id='open-settings-modal', outline=True) }}
+    </footer>
+  </body>
 </html>

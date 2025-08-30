@@ -307,7 +307,7 @@ def check():
         "ext": info.get("ext", "bin"),
     }
 
-    if str_to_bool(data.get("has_ffmpeg", False)) and "requested_formats" in info:
+    if "requested_formats" in info:
         ret_data["needFFmpeg"] = True
         req_formats = []
         for i in info.get("requested_formats", []):
@@ -331,12 +331,24 @@ def check():
             return create_error_response(
                 "No downloadable URL found for the selected format.", 404
             )
+
         uid = uuid.uuid4().hex[:12]
         if redis_client:
             redis_client.set(f"ytdl:url:{uid}", url, ex=URL_CACHE_TTL_SECONDS)
         ret_data["id"] = uid
         ret_data["isPart"] = True
         ret_data["fileSizeApprox"] = info.get("filesize_approx", 0)
+
+        if data.get("type") == "audio":
+            target_ext = data.get("format")
+            actual_ext = info.get("ext")
+            if target_ext and target_ext != "custom" and target_ext != actual_ext:
+                ret_data["needsConversion"] = True
+                ret_data["ext"] = target_ext
+                ret_data["sourceExt"] = actual_ext
+                app.logger.info(
+                    f"Audio conversion needed: from '{actual_ext}' to '{target_ext}'"
+                )
 
     if redis_client and cache_key:
         try:
@@ -381,11 +393,12 @@ def _build_check_format_string(
             else:
                 final_format = "best*[vcodec!=none][acodec!=none][height<=1080]"
         elif req_type == "audio":
-            final_format = (
-                "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio"
-            )
+            final_format = "bestaudio"
         else:
             raise ValueError("Invalid type specified for format string.")
+
+    elif req_type == "audio":
+        final_format = f"bestaudio[ext={custom_format}]/bestaudio"
 
     return f"({final_format}/best)[protocol^=http][protocol!*=dash][filesize<={MAX_DOWNLOAD_FILESIZE}]"
 

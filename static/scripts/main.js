@@ -70,7 +70,7 @@ function saveAs(blob, filename) {
 }
 
 function sanitizeFilename(name) {
-  const sanitized = name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+  const sanitized = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, "");
   if (sanitized !== name)
     Logger.log(`Sanitized filename from "${name}" to "${sanitized}"`);
   return sanitized;
@@ -289,6 +289,10 @@ const YtdlApp = {
       Logger.info("Path selected: FFmpeg remuxing.");
       if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
       await this.ffmpegDownload(data);
+    } else if (data.needsConversion) {
+      Logger.info("Path selected: Audio conversion.");
+      if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
+      await this.convertAudio(data);
     } else {
       const sanitizedFilename = sanitizeFilename(`${data.title}.${data.ext}`);
       Logger.info("Path selected: Ranged download.");
@@ -357,6 +361,46 @@ const YtdlApp = {
     return blob;
   },
 
+  async convertAudio(data) {
+    Logger.info("Starting audio conversion process.");
+    const ffmpeg = window.WP_ffmpeg;
+    const inputFilename = `input.${data.sourceExt}`;
+    const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
+
+    try {
+      const fileBlob = await this._fetchFile(data);
+      const fileBuffer = await fileBlob.arrayBuffer();
+
+      Logger.log(`Writing source audio to virtual FS as "${inputFilename}"`);
+      await ffmpeg.writeFile(inputFilename, new Uint8Array(fileBuffer));
+
+      await this.updateDownloadText(`converting to ${data.ext}...`);
+      const execParams = ["-i", inputFilename, outputFilename];
+      Logger.info(
+        "Executing FFmpeg command:",
+        `ffmpeg ${execParams.join(" ")}`
+      );
+      await ffmpeg.exec(execParams);
+      Logger.info("FFmpeg conversion complete.");
+
+      const convertedData = await ffmpeg.readFile(outputFilename);
+      Logger.log(
+        `Reading converted file from virtual FS. Size: ${convertedData.length}`
+      );
+      const blob = new Blob([convertedData], { type: `audio/${data.ext}` });
+      saveAs(blob, outputFilename);
+    } finally {
+      await this.updateDownloadText(`cleaning up...`);
+      try {
+        await ffmpeg.deleteFile(inputFilename);
+        await ffmpeg.deleteFile(outputFilename);
+        Logger.log("Cleaned up FFmpeg virtual files.");
+      } catch (e) {
+        Logger.warn(`Could not delete temp files`, e);
+      }
+    }
+  },
+
   async ffmpegDownload(data) {
     Logger.info("Starting FFmpeg download process.");
     const ffmpeg = window.WP_ffmpeg;
@@ -413,7 +457,7 @@ const YtdlApp = {
       await ffmpeg.exec(execParams);
       Logger.info("FFmpeg execution complete.");
 
-      const mergedData = await ffmpeg.readFile(safeOutputName);
+      const mergedData = await ffmpeg.readFile(outputFilename);
       Logger.log(
         `Reading merged file from virtual FS. Size: ${mergedData.length}`
       );
